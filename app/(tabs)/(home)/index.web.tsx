@@ -18,6 +18,7 @@ import { colors, spacing, borderRadius, typography } from "@/styles/commonStyles
 import { SafeAreaView } from "react-native-safe-area-context";
 import { authenticatedPost } from "@/utils/api";
 
+LogBox.ignoreAllLogs(); //Ignore all log notifications
 // Predefined message - non-editable
 const PREDEFINED_MESSAGE = "Do you accept to have lunch with me?";
 
