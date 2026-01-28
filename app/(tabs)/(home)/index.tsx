@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from "react";
 import { 
   StyleSheet, 
@@ -19,6 +20,16 @@ import { colors, spacing, borderRadius, typography } from "@/styles/commonStyles
 import { SafeAreaView } from "react-native-safe-area-context";
 import { authenticatedGet, authenticatedPost } from "@/utils/api";
 
+// Predefined message templates - users can only select from these
+const PREDEFINED_MESSAGES = [
+  "Do you accept to have lunch with me?",
+  "Do you accept to have coffee with me?",
+  "Do you accept to meet me for a business discussion?",
+  "Do you accept to join me for dinner?",
+  "Do you accept to attend the event with me?",
+  "Do you accept to collaborate on this project?",
+];
+
 export default function HomeScreen() {
   const theme = useTheme();
   const { user, loading: authLoading } = useAuth();
@@ -27,7 +38,7 @@ export default function HomeScreen() {
   const themeColors = isDark ? colors.dark : colors.light;
 
   const [recipientEmail, setRecipientEmail] = useState("");
-  const [messageContent, setMessageContent] = useState("");
+  const [selectedMessage, setSelectedMessage] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [sentMessages, setSentMessages] = useState<any[]>([]);
   const [receivedMessages, setReceivedMessages] = useState<any[]>([]);
@@ -54,7 +65,6 @@ export default function HomeScreen() {
     console.log("[HomeScreen] Loading messages for user");
     setLoadingMessages(true);
     try {
-      // Fetch sent and received messages in parallel
       const [sentResponse, receivedResponse] = await Promise.all([
         authenticatedGet<any[]>("/api/messages?type=sent"),
         authenticatedGet<any[]>("/api/messages?type=received"),
@@ -67,7 +77,6 @@ export default function HomeScreen() {
       setReceivedMessages(receivedResponse || []);
     } catch (error) {
       console.error("[HomeScreen] Error loading messages:", error);
-      // Don't show error modal on initial load, just log it
     } finally {
       setLoadingMessages(false);
     }
@@ -86,16 +95,15 @@ export default function HomeScreen() {
       return;
     }
     
-    if (!messageContent.trim()) {
-      showModalMessage("Error", "Please enter a message", "error");
+    if (!selectedMessage) {
+      showModalMessage("Error", "Please select a message", "error");
       return;
     }
 
-    console.log("[HomeScreen] Sending message to:", recipientEmail);
+    console.log("[HomeScreen] Sending predefined message to:", recipientEmail);
     setSending(true);
 
     try {
-      // POST /api/messages with { recipientEmail, content }
       const response = await authenticatedPost<{
         id: string;
         linkToken: string;
@@ -103,19 +111,16 @@ export default function HomeScreen() {
         expiresAt: string;
       }>("/api/messages", {
         recipientEmail: recipientEmail.trim(),
-        content: messageContent.trim(),
+        content: selectedMessage,
       });
       
       console.log("[HomeScreen] Message created:", response);
       
-      // Share the link - construct URL based on platform
       let shareUrl = response.shareUrl;
       if (!shareUrl) {
-        // Fallback: construct URL manually
         if (Platform.OS === 'web') {
           shareUrl = `${window.location.origin}/message/${response.linkToken}`;
         } else {
-          // For native, use a universal link or deep link
           shareUrl = `https://acceptconnect.app/message/${response.linkToken}`;
         }
       }
@@ -129,11 +134,9 @@ export default function HomeScreen() {
       console.log("[HomeScreen] Message sent successfully");
       showModalMessage("Success", "Message sent! The recipient will receive a secure link.", "success");
       
-      // Clear form
       setRecipientEmail("");
-      setMessageContent("");
+      setSelectedMessage(null);
       
-      // Reload messages
       loadMessages();
     } catch (error: any) {
       console.error("[HomeScreen] Error sending message:", error);
@@ -157,7 +160,6 @@ export default function HomeScreen() {
   }
 
   const userNameDisplay = user.name || "User";
-  const userEmailDisplay = user.email || "";
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]} edges={['top']}>
@@ -166,7 +168,6 @@ export default function HomeScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
         <View style={styles.header}>
           <Text style={[styles.greeting, { color: themeColors.text }]}>
             Hello
@@ -175,11 +176,10 @@ export default function HomeScreen() {
             {userNameDisplay}
           </Text>
           <Text style={[styles.subtitle, { color: themeColors.textSecondary }]}>
-            Send secure messages that require acceptance
+            Send consent requests with predefined messages
           </Text>
         </View>
 
-        {/* Send Message Card */}
         <View style={[styles.card, { backgroundColor: themeColors.card, borderColor: themeColors.border }]}>
           <View style={styles.cardHeader}>
             <IconSymbol 
@@ -189,7 +189,7 @@ export default function HomeScreen() {
               color={themeColors.primary} 
             />
             <Text style={[styles.cardTitle, { color: themeColors.text }]}>
-              Send Message
+              Send Consent Request
             </Text>
           </View>
 
@@ -215,28 +215,71 @@ export default function HomeScreen() {
 
           <View style={styles.inputGroup}>
             <Text style={[styles.label, { color: themeColors.textSecondary }]}>
-              Message
+              Select Message
             </Text>
-            <TextInput
-              style={[styles.textArea, { 
-                backgroundColor: themeColors.surface, 
-                color: themeColors.text,
-                borderColor: themeColors.border,
-              }]}
-              placeholder="Enter your message here..."
-              placeholderTextColor={themeColors.textSecondary}
-              value={messageContent}
-              onChangeText={setMessageContent}
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-            />
+            <Text style={[styles.helperText, { color: themeColors.textSecondary }]}>
+              Choose a predefined message. Messages cannot be edited.
+            </Text>
+            <View style={styles.messageOptions}>
+              {PREDEFINED_MESSAGES.map((message, index) => {
+                const isSelected = selectedMessage === message;
+                return (
+                  <TouchableOpacity
+                    key={index}
+                    style={[
+                      styles.messageOption,
+                      {
+                        backgroundColor: isSelected ? themeColors.primary + '20' : themeColors.surface,
+                        borderColor: isSelected ? themeColors.primary : themeColors.border,
+                      },
+                    ]}
+                    onPress={() => setSelectedMessage(message)}
+                  >
+                    <View style={styles.messageOptionContent}>
+                      <View
+                        style={[
+                          styles.radioButton,
+                          {
+                            borderColor: isSelected ? themeColors.primary : themeColors.border,
+                            backgroundColor: isSelected ? themeColors.primary : 'transparent',
+                          },
+                        ]}
+                      >
+                        {isSelected && (
+                          <IconSymbol
+                            ios_icon_name="checkmark"
+                            android_material_icon_name="check"
+                            size={14}
+                            color="#FFFFFF"
+                          />
+                        )}
+                      </View>
+                      <Text
+                        style={[
+                          styles.messageOptionText,
+                          {
+                            color: isSelected ? themeColors.primary : themeColors.text,
+                          },
+                        ]}
+                      >
+                        {message}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
 
           <TouchableOpacity
-            style={[styles.sendButton, { backgroundColor: themeColors.primary }]}
+            style={[
+              styles.sendButton,
+              {
+                backgroundColor: selectedMessage && recipientEmail.trim() ? themeColors.primary : themeColors.border,
+              },
+            ]}
             onPress={handleSendMessage}
-            disabled={sending}
+            disabled={sending || !selectedMessage || !recipientEmail.trim()}
           >
             {sending ? (
               <ActivityIndicator color="#FFFFFF" />
@@ -256,7 +299,6 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Info Card */}
         <View style={[styles.infoCard, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
           <IconSymbol 
             ios_icon_name="info.circle.fill" 
@@ -265,11 +307,10 @@ export default function HomeScreen() {
             color={themeColors.primary} 
           />
           <Text style={[styles.infoText, { color: themeColors.textSecondary }]}>
-            The recipient will receive a secure link to view and accept or reject your message.
+            The recipient will receive a secure link to view and accept or reject your message. No emails are sent.
           </Text>
         </View>
 
-        {/* Messages Section */}
         <View style={styles.messagesSection}>
           <Text style={[styles.sectionTitle, { color: themeColors.text }]}>
             Recent Activity
@@ -279,7 +320,6 @@ export default function HomeScreen() {
             <ActivityIndicator size="small" color={themeColors.primary} style={styles.loader} />
           ) : (
             <>
-              {/* Received Messages */}
               {receivedMessages.length > 0 && (
                 <View style={styles.messageGroup}>
                   <Text style={[styles.messageGroupTitle, { color: themeColors.textSecondary }]}>
@@ -335,7 +375,6 @@ export default function HomeScreen() {
                 </View>
               )}
 
-              {/* Sent Messages */}
               {sentMessages.length > 0 && (
                 <View style={styles.messageGroup}>
                   <Text style={[styles.messageGroupTitle, { color: themeColors.textSecondary }]}>
@@ -401,7 +440,6 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      {/* Modal for success/error messages */}
       <Modal
         visible={showModal}
         transparent
@@ -483,18 +521,41 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     fontWeight: '500',
   },
+  helperText: {
+    ...typography.caption,
+    marginBottom: spacing.sm,
+    fontStyle: 'italic',
+  },
   input: {
     borderRadius: borderRadius.md,
     padding: spacing.md,
     ...typography.body,
     borderWidth: 1,
   },
-  textArea: {
+  messageOptions: {
+    gap: spacing.sm,
+  },
+  messageOption: {
     borderRadius: borderRadius.md,
     padding: spacing.md,
+    borderWidth: 2,
+  },
+  messageOptionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  radioButton: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    marginRight: spacing.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  messageOptionText: {
     ...typography.body,
-    minHeight: 120,
-    borderWidth: 1,
+    flex: 1,
   },
   sendButton: {
     flexDirection: 'row',
