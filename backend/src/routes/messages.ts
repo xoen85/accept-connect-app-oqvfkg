@@ -3,23 +3,26 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, or } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import * as schema from '../db/schema.js';
+import * as authSchema from '../db/auth-schema.js';
 
 export function registerMessageRoutes(app: App) {
   const requireAuth = app.requireAuth();
 
   /**
    * POST /api/messages - Create a new message
-   * Supports link-based, proximity-based, or direct message exchange
+   * Supports consent flow (no recipient) and direct recipient flow
+   * For consent flow: content is required, recipientId is NOT required
+   * Link token is always generated for consent messages
    */
   app.fastify.post('/api/messages', async (request: FastifyRequest, reply: FastifyReply) => {
     const session = await requireAuth(request, reply);
     if (!session) return;
 
-    const { content, recipientId, generateLink, linkExpiresIn, singleUse } =
+    const { content, recipientEmail, recipientId, linkExpiresIn, singleUse } =
       request.body as {
         content: string;
+        recipientEmail?: string;
         recipientId?: string;
-        generateLink?: boolean;
         linkExpiresIn?: number;
         singleUse?: boolean;
       };
@@ -27,8 +30,8 @@ export function registerMessageRoutes(app: App) {
     app.logger.info(
       {
         senderId: session.user.id,
+        recipientEmail,
         recipientId,
-        generateLink,
         hasContent: !!content,
       },
       'Creating message'
@@ -39,45 +42,66 @@ export function registerMessageRoutes(app: App) {
     }
 
     try {
-      let linkToken: string | null = null;
-      let linkExpiresAt: Date | null = null;
+      let finalRecipientId: string | null = null;
 
-      if (generateLink) {
-        // Generate secure link token
-        linkToken = randomBytes(32).toString('hex');
-        // Default expiration: 24 hours from now
-        const expirationMs = linkExpiresIn || 24 * 60 * 60 * 1000;
-        linkExpiresAt = new Date(Date.now() + expirationMs);
+      // If recipientEmail is provided, look up the user
+      if (recipientEmail) {
+        const recipientUser = await app.db.query.user.findFirst({
+          where: eq(authSchema.user.email, recipientEmail),
+        });
+
+        if (!recipientUser) {
+          app.logger.warn(
+            { recipientEmail },
+            'Recipient email not found'
+          );
+          return reply.status(404).send({
+            error: 'Recipient user not found',
+          });
+        }
+
+        finalRecipientId = recipientUser.id;
+      } else if (recipientId) {
+        finalRecipientId = recipientId;
       }
+      // else: finalRecipientId remains null for consent flow
+
+      // Always generate link token for message sharing
+      const linkToken = randomBytes(32).toString('hex');
+      // Default expiration: 24 hours from now
+      const expirationMs = linkExpiresIn || 24 * 60 * 60 * 1000;
+      const linkExpiresAt = new Date(Date.now() + expirationMs);
 
       const [message] = await app.db
         .insert(schema.messages)
         .values({
           senderId: session.user.id,
-          recipientId: recipientId || null,
+          recipientId: finalRecipientId,
           content,
           status: 'pending',
           linkToken,
           linkExpiresAt,
-          singleUse: singleUse || false,
+          singleUse: singleUse ?? true, // Default to single-use for consent flow
         })
         .returning();
 
       app.logger.info(
-        { messageId: message.id, linkToken: !!linkToken },
+        { messageId: message.id, linkToken: !!linkToken, recipientId: finalRecipientId },
         'Message created successfully'
       );
 
-      // Return message with link if generated
+      // Build share URL
+      const shareUrl = `https://acceptconnect.app/message/${linkToken}`;
+
+      // Return message with link and share URL
       return {
         ...message,
-        link: linkToken
-          ? `${request.protocol}://${request.hostname}/api/messages/link/${linkToken}`
-          : undefined,
+        linkToken,
+        shareUrl,
       };
     } catch (error) {
       app.logger.error(
-        { err: error, senderId: session.user.id, recipientId },
+        { err: error, senderId: session.user.id, recipientEmail, recipientId },
         'Failed to create message'
       );
       throw error;
@@ -201,6 +225,7 @@ export function registerMessageRoutes(app: App) {
   /**
    * GET /api/messages/link/:token - Get message by link token
    * Validates expiration and single-use constraint
+   * Returns message with sender information
    * Does NOT require authentication
    */
   app.fastify.get(
@@ -216,6 +241,7 @@ export function registerMessageRoutes(app: App) {
         });
 
         if (!message) {
+          app.logger.warn({ linkToken: token }, 'Link token not found');
           return reply.status(404).send({ error: 'Link not found' });
         }
 
@@ -231,11 +257,28 @@ export function registerMessageRoutes(app: App) {
           return reply.status(410).send({ error: 'Link has already been used' });
         }
 
-        app.logger.info({ messageId: message.id }, 'Message link accessed');
+        // Fetch sender information
+        const sender = await app.db.query.user.findFirst({
+          where: eq(authSchema.user.id, message.senderId),
+        });
 
-        // Return message without sensitive link data
-        const { linkToken, linkExpiresAt, linkUsed, ...safeMessage } = message;
-        return safeMessage;
+        app.logger.info(
+          { messageId: message.id, senderId: message.senderId },
+          'Message link accessed'
+        );
+
+        // Return message with sender information
+        return {
+          id: message.id,
+          content: message.content,
+          status: message.status,
+          createdAt: message.createdAt,
+          sender: {
+            id: sender?.id,
+            name: sender?.name,
+            email: sender?.email,
+          },
+        };
       } catch (error) {
         app.logger.error(
           { err: error, linkToken: token },
@@ -359,6 +402,93 @@ export function registerMessageRoutes(app: App) {
         app.logger.error(
           { err: error, messageId: id, userId: session.user.id },
           'Failed to reject message'
+        );
+        throw error;
+      }
+    }
+  );
+
+  /**
+   * POST /api/messages/:token/respond - Accept or reject a message via link token
+   * This endpoint is for the consent flow where users respond via shared link
+   * Sets recipientId to authenticated user if not already set
+   * Marks linkUsed as true
+   */
+  app.fastify.post(
+    '/api/messages/:token/respond',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const session = await requireAuth(request, reply);
+      if (!session) return;
+
+      const { token } = request.params as { token: string };
+      const { action } = request.body as { action: 'accept' | 'reject' };
+
+      app.logger.info(
+        { linkToken: token, userId: session.user.id, action },
+        'Responding to message via link token'
+      );
+
+      if (!action || !['accept', 'reject'].includes(action)) {
+        return reply.status(400).send({
+          error: 'Invalid action. Must be "accept" or "reject"',
+        });
+      }
+
+      try {
+        const message = await app.db.query.messages.findFirst({
+          where: eq(schema.messages.linkToken, token),
+        });
+
+        if (!message) {
+          app.logger.warn({ linkToken: token }, 'Link token not found');
+          return reply.status(404).send({ error: 'Link not found' });
+        }
+
+        // Check if link has expired
+        if (message.linkExpiresAt && new Date() > message.linkExpiresAt) {
+          app.logger.warn({ messageId: message.id }, 'Link expired');
+          return reply.status(410).send({ error: 'Link has expired' });
+        }
+
+        // Check if single-use link has been used
+        if (message.singleUse && message.linkUsed) {
+          app.logger.warn({ messageId: message.id }, 'Single-use link already used');
+          return reply.status(410).send({ error: 'Link has already been used' });
+        }
+
+        // Update message with response
+        const newStatus = action === 'accept' ? 'accepted' : 'rejected';
+        const [updated] = await app.db
+          .update(schema.messages)
+          .set({
+            status: newStatus,
+            recipientId: message.recipientId || session.user.id, // Set recipient if not already set
+            linkUsed: true,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.messages.linkToken, token))
+          .returning();
+
+        app.logger.info(
+          {
+            messageId: updated.id,
+            userId: session.user.id,
+            action,
+            wasRecipientSet: message.recipientId !== null,
+          },
+          `Message ${newStatus} via link token`
+        );
+
+        return {
+          id: updated.id,
+          status: updated.status,
+          recipientId: updated.recipientId,
+          message: `Message successfully marked as ${newStatus}`,
+        };
+      } catch (error) {
+        app.logger.error(
+          { err: error, linkToken: token, userId: session.user.id, action },
+          'Failed to respond to message via link token'
         );
         throw error;
       }
