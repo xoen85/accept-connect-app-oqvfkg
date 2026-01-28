@@ -12,7 +12,7 @@ import {
   Share,
   PermissionsAndroid,
   Alert as RNAlert,
-	
+	LogBox
 } from "react-native";
 import { useTheme } from "@react-navigation/native";
 import { useAuth } from "@/contexts/AuthContext";
