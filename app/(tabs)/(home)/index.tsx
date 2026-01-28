@@ -13,6 +13,9 @@ import {
   PermissionsAndroid,
   Alert as RNAlert,
 } from "react-native";
+import { LogBox } from 'react-native';
+
+LogBox.ignoreLogs(['new NativeEventEmitter']);
 import { useTheme } from "@react-navigation/native";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "expo-router";
