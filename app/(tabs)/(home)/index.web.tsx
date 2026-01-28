@@ -9,6 +9,7 @@ import {
   Platform,
   Modal,
   Share,
+	LogBox
 } from "react-native";
 import { useTheme } from "@react-navigation/native";
 import { useAuth } from "@/contexts/AuthContext";
