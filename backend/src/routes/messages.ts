@@ -4,6 +4,7 @@ import { eq, and, or } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import * as schema from '../db/schema.js';
 import * as authSchema from '../db/auth-schema.js';
+import { shortenLink, obfuscateUrl, generateShareableMessage } from '../utils/link-utils.js';
 
 export function registerMessageRoutes(app: App) {
   const requireAuth = app.requireAuth();
@@ -90,14 +91,56 @@ export function registerMessageRoutes(app: App) {
         'Message created successfully'
       );
 
-      // Build share URL
-      const shareUrl = `https://acceptconnect.app/message/${linkToken}`;
+      // Build share URLs - full and shortened
+      const fullUrl = `https://acceptconnect.app/message/${linkToken}`;
+      const shortened = shortenLink(linkToken);
 
-      // Return message with link and share URL
+      // Get user preferences for link obfuscation
+      let preferences = await app.db.query.userSharingPreferences.findFirst({
+        where: eq(schema.userSharingPreferences.userId, session.user.id),
+      });
+
+      // Create default preferences if not found
+      if (!preferences) {
+        const [created] = await app.db
+          .insert(schema.userSharingPreferences)
+          .values({
+            userId: session.user.id,
+            obfuscateLinks: true,
+          })
+          .returning();
+        preferences = created;
+      }
+
+      // Apply obfuscation if enabled
+      const displayUrl = preferences.obfuscateLinks
+        ? obfuscateUrl(fullUrl)
+        : fullUrl;
+
+      // Generate shareable messages for different platforms
+      const shareMessages = generateShareableMessage({
+        fullUrl,
+        senderName: session.user.name || 'A user',
+        obfuscate: preferences.obfuscateLinks,
+        shorten: false,
+      });
+
+      // Return message with link options
       return {
         ...message,
         linkToken,
-        shareUrl,
+        urls: {
+          full: fullUrl,
+          short: shortened.displayUrl,
+          display: displayUrl,
+        },
+        shareMessages: Object.fromEntries(
+          Object.entries(shareMessages).filter(([method]) =>
+            (preferences.allowedShareMethods || ['whatsapp']).includes(
+              method as 'whatsapp' | 'email' | 'telegram' | 'sms'
+            )
+          )
+        ),
       };
     } catch (error) {
       app.logger.error(

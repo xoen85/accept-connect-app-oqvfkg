@@ -6,6 +6,11 @@ import { registerProximityRoutes } from './routes/proximity.js';
 import { registerPushTokenRoutes } from './routes/push-tokens.js';
 import { registerUserRoutes } from './routes/users.js';
 import { registerSpidAuthRoutes } from './routes/spid-auth.js';
+import { registerDeviceDiscoveryRoutes } from './routes/device-discovery.js';
+import { registerUserPreferencesRoutes } from './routes/user-preferences.js';
+import { registerPasswordRecoveryRoutes } from './routes/password-recovery.js';
+import { registerSharingRoutes } from './routes/sharing.js';
+import { registerOAuthProfileRoutes } from './routes/oauth-profile.js';
 
 // Combine app and auth schemas
 const schema = { ...appSchema, ...authSchema };
@@ -51,6 +56,11 @@ registerProximityRoutes(app);
 registerPushTokenRoutes(app);
 registerUserRoutes(app);
 registerSpidAuthRoutes(app);
+registerDeviceDiscoveryRoutes(app);
+registerUserPreferencesRoutes(app);
+registerPasswordRecoveryRoutes(app);
+registerSharingRoutes(app);
+registerOAuthProfileRoutes(app);
 
 await app.run();
 app.logger.info('Application running');
