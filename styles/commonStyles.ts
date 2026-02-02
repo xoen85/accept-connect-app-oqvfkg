@@ -56,6 +56,14 @@ export const borderRadius = {
 };
 
 export const typography = {
+  sizes: {
+    xs: 12,
+    sm: 14,
+    md: 16,
+    lg: 18,
+    xl: 24,
+    xxl: 32,
+  },
   h1: {
     fontSize: 32,
     fontWeight: '700' as const,

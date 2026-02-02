@@ -13,7 +13,7 @@ import {
   Alert,
 } from "react-native";
 import { useTheme } from "@react-navigation/native";
-import { colors, spacing, borderRadius, typography } from "@/styles/commonStyles";
+import { spacing, borderRadius, typography } from "@/styles/commonStyles";
 import { Stack, useRouter } from "expo-router";
 import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";

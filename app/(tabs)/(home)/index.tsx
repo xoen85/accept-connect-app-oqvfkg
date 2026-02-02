@@ -2,7 +2,7 @@
 import { useRouter } from "expo-router";
 import { authenticatedPost } from "@/utils/api";
 import { useTheme } from "@react-navigation/native";
-import { colors, spacing, borderRadius, typography } from "@/styles/commonStyles";
+import { spacing, borderRadius, typography } from "@/styles/commonStyles";
 import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { SafeAreaView } from "react-native-safe-area-context";
