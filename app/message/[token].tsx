@@ -1,5 +1,12 @@
 
-import React, { useState, useEffect } from "react";
+import { useTheme } from "@react-navigation/native";
+import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import { colors, spacing, borderRadius, typography } from "@/styles/commonStyles";
+import React, { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { authenticatedGet, authenticatedPost } from "@/utils/api";
+import { IconSymbol } from "@/components/IconSymbol";
 import {
   View,
   Text,
@@ -9,341 +16,244 @@ import {
   ActivityIndicator,
   Modal,
 } from "react-native";
-import { useLocalSearchParams, useRouter, Stack } from "expo-router";
-import { useTheme } from "@react-navigation/native";
-import { useAuth } from "@/contexts/AuthContext";
-import { IconSymbol } from "@/components/IconSymbol";
-import { colors, spacing, borderRadius, typography } from "@/styles/commonStyles";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { authenticatedGet, authenticatedPost } from "@/utils/api";
+
+interface Message {
+  id: string;
+  content: string;
+  senderId: string;
+  senderUsername: string;
+  status: "pending" | "accepted" | "rejected";
+  createdAt: string;
+}
 
 export default function MessageViewScreen() {
-  const { token } = useLocalSearchParams<{ token: string }>();
-  const theme = useTheme();
-  const { user, loading: authLoading } = useAuth();
+  const { colors } = useTheme();
+  const { user, authLoading } = useAuth();
   const router = useRouter();
-  const isDark = theme.dark;
-  const themeColors = isDark ? colors.dark : colors.light;
+  const { token } = useLocalSearchParams();
 
+  const [message, setMessage] = useState<Message | null>(null);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState<any>(null);
   const [responding, setResponding] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showModal, setShowModal] = useState(false);
-  const [modalConfig, setModalConfig] = useState<{
-    title: string;
-    message: string;
-    type: "success" | "error";
-    onClose?: () => void;
-  }>({ title: "", message: "", type: "success" });
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalTitle, setModalTitle] = useState("");
+  const [modalMessage, setModalMessage] = useState("");
+  const [modalType, setModalType] = useState<"success" | "error">("success");
 
-  useEffect(() => {
-    console.log("MessageViewScreen mounted, token:", token);
-    if (!authLoading && !user) {
-      console.log("User not authenticated, redirecting to auth");
-      router.replace("/auth");
-    } else if (user && token) {
-      console.log("User authenticated, loading message");
-      loadMessage();
-    }
-  }, [user, authLoading, token]);
-
-  const loadMessage = async () => {
-    console.log("[MessageView] Loading message with token:", token);
-    setLoading(true);
-    setError(null);
+  const loadMessage = useCallback(async () => {
+    if (!token) return;
 
     try {
-      // GET /api/messages/link/:token to view message by link token
-      const response = await authenticatedGet<{
-        id: string;
-        content: string;
-        senderName: string;
-        status: string;
-        createdAt: string;
-        viewedAt: string | null;
-      }>(`/api/messages/link/${token}`);
-      
-      console.log("[MessageView] Message loaded:", response);
+      console.log("Loading message with token:", token);
+      const response = await authenticatedGet(`/api/messages/link/${token}`);
       setMessage(response);
-    } catch (err: any) {
-      console.error("[MessageView] Error loading message:", err);
-      const errorMessage = err?.message || "Failed to load message. The link may be invalid or expired.";
-      setError(errorMessage);
+      console.log("Message loaded:", response);
+    } catch (error) {
+      console.error("Error loading message:", error);
+      showModalMessage("Error", "Failed to load message", "error");
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
-  const showModalMessage = (
-    title: string,
-    message: string,
-    type: "success" | "error",
-    onClose?: () => void
-  ) => {
-    setModalConfig({ title, message, type, onClose });
-    setShowModal(true);
-  };
-
-  const handleRespond = async (action: "accept" | "reject") => {
-    console.log("[MessageView] User responding to message:", action);
-    
-    if (!message) {
-      console.error("[MessageView] No message to respond to");
-      return;
+  useEffect(() => {
+    if (!authLoading && !user) {
+      console.log("User not authenticated, redirecting to auth screen");
+      router.replace("/auth");
+    } else if (user) {
+      loadMessage();
     }
+  }, [user, authLoading, loadMessage, router]);
+
+  const showModalMessage = useCallback((title: string, message: string, type: "success" | "error") => {
+    setModalTitle(title);
+    setModalMessage(message);
+    setModalType(type);
+    setModalVisible(true);
+  }, []);
+
+  const handleRespond = useCallback(async (action: "accept" | "reject") => {
+    if (!message) return;
 
     setResponding(true);
-
     try {
-      // POST /api/messages/:id/accept or /api/messages/:id/reject
-      const endpoint = `/api/messages/${message.id}/${action}`;
-      const response = await authenticatedPost<{
-        id: string;
-        status: string;
-        respondedAt: string;
-      }>(endpoint, {});
-      
-      console.log("[MessageView] Message response successful:", response);
-      
+      console.log(`User ${action}ed message:`, message.id);
+      await authenticatedPost(`/api/messages/${message.id}/${action}`, {});
+
       const actionText = action === "accept" ? "accepted" : "rejected";
       showModalMessage(
-        "Success",
-        `You have ${actionText} this message.`,
-        "success",
-        () => router.replace("/(tabs)/(home)/")
+        "Response Sent",
+        `You have ${actionText} the request`,
+        action === "accept" ? "success" : "error"
       );
-      
-      // Update local message state
-      setMessage({ ...message, status: response.status });
-    } catch (err: any) {
-      console.error("[MessageView] Error responding to message:", err);
-      const errorMessage = err?.message || "Failed to respond to message. Please try again.";
-      showModalMessage("Error", errorMessage, "error");
+
+      // Update local state
+      setMessage({ ...message, status: action === "accept" ? "accepted" : "rejected" });
+
+      // Navigate back after a delay
+      setTimeout(() => {
+        router.replace("/(tabs)/(home)");
+      }, 2000);
+    } catch (error) {
+      console.error(`Error ${action}ing message:`, error);
+      showModalMessage("Error", `Failed to ${action} the request`, "error");
     } finally {
       setResponding(false);
     }
-  };
+  }, [message, router, showModalMessage]);
+
+  const handleCloseModal = useCallback(() => {
+    setModalVisible(false);
+  }, []);
 
   if (authLoading || loading) {
     return (
-      <>
-        <Stack.Screen options={{ title: "Loading..." }} />
-        <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]} edges={['bottom']}>
-          <View style={styles.centerContent}>
-            <ActivityIndicator size="large" color={themeColors.primary} />
-            <Text style={[styles.loadingText, { color: themeColors.textSecondary }]}>
-              Loading message...
-            </Text>
-          </View>
-        </SafeAreaView>
-      </>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
     );
   }
 
-  if (error || !message) {
-    const errorMessage = error || "Message not found";
-    
+  if (!message) {
     return (
-      <>
-        <Stack.Screen options={{ title: "Error" }} />
-        <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]} edges={['bottom']}>
-          <View style={styles.centerContent}>
-            <IconSymbol
-              ios_icon_name="exclamationmark.triangle.fill"
-              android_material_icon_name="error"
-              size={64}
-              color={themeColors.error}
-            />
-            <Text style={[styles.errorTitle, { color: themeColors.text }]}>
-              Unable to Load Message
-            </Text>
-            <Text style={[styles.errorMessage, { color: themeColors.textSecondary }]}>
-              {errorMessage}
-            </Text>
-            <TouchableOpacity
-              style={[styles.button, { backgroundColor: themeColors.primary }]}
-              onPress={() => router.replace("/(tabs)/(home)/")}
-            >
-              <Text style={styles.buttonText}>
-                Go to Home
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </SafeAreaView>
-      </>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={["top"]}>
+        <Stack.Screen
+          options={{
+            headerShown: true,
+            title: "Message",
+            headerBackTitle: "Back",
+          }}
+        />
+        <View style={styles.centerContent}>
+          <IconSymbol
+            ios_icon_name="exclamationmark.triangle"
+            android_material_icon_name="warning"
+            size={64}
+            color={colors.text}
+          />
+          <Text style={[styles.errorText, { color: colors.text }]}>
+            Message not found or expired
+          </Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
-  const isAlreadyResponded = message.status !== "pending";
-  const statusText = message.status === "accepted" ? "Accepted" : message.status === "rejected" ? "Rejected" : "Pending";
-  const statusColor = message.status === "accepted" ? themeColors.success : message.status === "rejected" ? themeColors.error : themeColors.warning;
+  const alreadyResponded = message.status !== "pending";
 
   return (
-    <>
-      <Stack.Screen options={{ title: "Message from " + message.senderName }} />
-      <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]} edges={['bottom']}>
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Sender Info */}
-          <View style={[styles.senderCard, { backgroundColor: themeColors.card, borderColor: themeColors.border }]}>
-            <View style={[styles.senderAvatar, { backgroundColor: themeColors.primary }]}>
-              <Text style={styles.senderAvatarText}>
-                {message.senderName.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-            <View style={styles.senderInfo}>
-              <Text style={[styles.senderLabel, { color: themeColors.textSecondary }]}>
-                From
-              </Text>
-              <Text style={[styles.senderName, { color: themeColors.text }]}>
-                {message.senderName}
-              </Text>
-            </View>
-            <View style={[styles.statusBadge, { backgroundColor: statusColor + '20' }]}>
-              <Text style={[styles.statusText, { color: statusColor }]}>
-                {statusText}
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={["top"]}>
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title: "Message Request",
+          headerBackTitle: "Back",
+        }}
+      />
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={[styles.messageCard, { backgroundColor: colors.card }]}>
+          <View style={styles.senderInfo}>
+            <IconSymbol
+              ios_icon_name="person.circle.fill"
+              android_material_icon_name="account-circle"
+              size={64}
+              color={colors.primary}
+            />
+            <View style={styles.senderDetails}>
+              <Text style={[styles.label, { color: colors.text }]}>From</Text>
+              <Text style={[styles.senderName, { color: colors.text }]}>
+                {message.senderUsername}
               </Text>
             </View>
           </View>
 
-          {/* Message Content */}
-          <View style={[styles.messageCard, { backgroundColor: themeColors.card, borderColor: themeColors.border }]}>
-            <Text style={[styles.messageLabel, { color: themeColors.textSecondary }]}>
-              Message
-            </Text>
-            <Text style={[styles.messageContent, { color: themeColors.text }]}>
+          <View style={styles.messageContent}>
+            <Text style={[styles.label, { color: colors.text }]}>Message</Text>
+            <Text style={[styles.messageText, { color: colors.text }]}>
               {message.content}
             </Text>
           </View>
 
-          {/* Info Card */}
-          {!isAlreadyResponded && (
-            <View style={[styles.infoCard, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
-              <IconSymbol
-                ios_icon_name="info.circle.fill"
-                android_material_icon_name="info"
-                size={20}
-                color={themeColors.primary}
-              />
-              <Text style={[styles.infoText, { color: themeColors.textSecondary }]}>
-                Please review the message and choose to accept or reject it. This action cannot be undone.
+          {alreadyResponded ? (
+            <View style={[styles.statusBadge, { backgroundColor: message.status === "accepted" ? "#10b981" : "#ef4444" }]}>
+              <Text style={styles.statusText}>
+                {message.status === "accepted" ? "✓ Accepted" : "✗ Rejected"}
               </Text>
             </View>
-          )}
-
-          {/* Action Buttons */}
-          {!isAlreadyResponded ? (
+          ) : (
             <View style={styles.actionButtons}>
               <TouchableOpacity
-                style={[styles.actionButton, styles.rejectButton, { backgroundColor: themeColors.error }]}
+                style={[styles.rejectButton, { backgroundColor: "#ef4444" }]}
                 onPress={() => handleRespond("reject")}
                 disabled={responding}
               >
                 {responding ? (
-                  <ActivityIndicator color="#FFFFFF" />
+                  <ActivityIndicator size="small" color="#fff" />
                 ) : (
                   <>
                     <IconSymbol
-                      ios_icon_name="xmark.circle.fill"
-                      android_material_icon_name="cancel"
-                      size={20}
-                      color="#FFFFFF"
+                      ios_icon_name="xmark"
+                      android_material_icon_name="close"
+                      size={24}
+                      color="#fff"
                     />
-                    <Text style={styles.actionButtonText}>
-                      Reject
-                    </Text>
+                    <Text style={styles.buttonText}>Reject</Text>
                   </>
                 )}
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.actionButton, styles.acceptButton, { backgroundColor: themeColors.success }]}
+                style={[styles.acceptButton, { backgroundColor: "#10b981" }]}
                 onPress={() => handleRespond("accept")}
                 disabled={responding}
               >
                 {responding ? (
-                  <ActivityIndicator color="#FFFFFF" />
+                  <ActivityIndicator size="small" color="#fff" />
                 ) : (
                   <>
                     <IconSymbol
-                      ios_icon_name="checkmark.circle.fill"
-                      android_material_icon_name="check-circle"
-                      size={20}
-                      color="#FFFFFF"
+                      ios_icon_name="checkmark"
+                      android_material_icon_name="check"
+                      size={24}
+                      color="#fff"
                     />
-                    <Text style={styles.actionButtonText}>
-                      Accept
-                    </Text>
+                    <Text style={styles.buttonText}>Accept</Text>
                   </>
                 )}
               </TouchableOpacity>
             </View>
-          ) : (
-            <View style={[styles.respondedCard, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
-              <IconSymbol
-                ios_icon_name={message.status === "accepted" ? "checkmark.circle.fill" : "xmark.circle.fill"}
-                android_material_icon_name={message.status === "accepted" ? "check-circle" : "cancel"}
-                size={48}
-                color={statusColor}
-              />
-              <Text style={[styles.respondedTitle, { color: themeColors.text }]}>
-                {message.status === "accepted" ? "Message Accepted" : "Message Rejected"}
-              </Text>
-              <Text style={[styles.respondedMessage, { color: themeColors.textSecondary }]}>
-                You have already responded to this message.
-              </Text>
-            </View>
           )}
-        </ScrollView>
+        </View>
+      </ScrollView>
 
-        {/* Modal for success/error messages */}
-        <Modal
-          visible={showModal}
-          transparent
-          animationType="fade"
-          onRequestClose={() => {
-            setShowModal(false);
-            if (modalConfig.onClose) {
-              modalConfig.onClose();
-            }
-          }}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { backgroundColor: themeColors.card }]}>
-              <IconSymbol
-                ios_icon_name={
-                  modalConfig.type === "success" ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
-                }
-                android_material_icon_name={modalConfig.type === "success" ? "check-circle" : "error"}
-                size={48}
-                color={modalConfig.type === "success" ? themeColors.success : themeColors.error}
-              />
-              <Text style={[styles.modalTitle, { color: themeColors.text }]}>
-                {modalConfig.title}
-              </Text>
-              <Text style={[styles.modalMessage, { color: themeColors.textSecondary }]}>
-                {modalConfig.message}
-              </Text>
-              <TouchableOpacity
-                style={[styles.modalButton, { backgroundColor: themeColors.primary }]}
-                onPress={() => {
-                  setShowModal(false);
-                  if (modalConfig.onClose) {
-                    modalConfig.onClose();
-                  }
-                }}
-              >
-                <Text style={styles.modalButtonText}>OK</Text>
-              </TouchableOpacity>
-            </View>
+      {/* Confirmation Modal */}
+      <Modal
+        visible={modalVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={handleCloseModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              {modalTitle}
+            </Text>
+            <Text style={[styles.modalMessage, { color: colors.text }]}>
+              {modalMessage}
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.modalButton,
+                { backgroundColor: modalType === "success" ? colors.primary : "#ef4444" },
+              ]}
+              onPress={handleCloseModal}
+            >
+              <Text style={styles.modalButtonText}>OK</Text>
+            </TouchableOpacity>
           </View>
-        </Modal>
-      </SafeAreaView>
-    </>
+        </View>
+      </Modal>
+    </SafeAreaView>
   );
 }
 
@@ -351,189 +261,118 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  scrollContent: {
+    flexGrow: 1,
+    padding: spacing.lg,
+  },
   centerContent: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.lg,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: spacing.xl,
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: spacing.md,
-  },
-  loadingText: {
-    ...typography.body,
-    marginTop: spacing.md,
-  },
-  errorTitle: {
-    ...typography.h2,
-    marginTop: spacing.md,
-    textAlign: 'center',
-  },
-  errorMessage: {
-    ...typography.body,
-    marginTop: spacing.sm,
-    textAlign: 'center',
-  },
-  button: {
-    borderRadius: borderRadius.md,
-    padding: spacing.md,
+  errorText: {
+    fontSize: typography.sizes.lg,
     marginTop: spacing.lg,
-    minWidth: 200,
-    alignItems: 'center',
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    ...typography.body,
-    fontWeight: '600',
-  },
-  senderCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-  },
-  senderAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: spacing.md,
-  },
-  senderAvatarText: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '600',
-  },
-  senderInfo: {
-    flex: 1,
-  },
-  senderLabel: {
-    ...typography.caption,
-    marginBottom: spacing.xs,
-  },
-  senderName: {
-    ...typography.h3,
-  },
-  statusBadge: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: borderRadius.sm,
-  },
-  statusText: {
-    ...typography.bodySmall,
-    fontWeight: '600',
+    textAlign: "center",
   },
   messageCard: {
     borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
-    borderWidth: 1,
+    padding: spacing.xl,
+    marginTop: spacing.xl,
   },
-  messageLabel: {
-    ...typography.bodySmall,
-    marginBottom: spacing.sm,
-    fontWeight: '500',
+  senderInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: spacing.xl,
+  },
+  senderDetails: {
+    marginLeft: spacing.md,
+    flex: 1,
+  },
+  label: {
+    fontSize: typography.sizes.sm,
+    opacity: 0.7,
+    marginBottom: 4,
+  },
+  senderName: {
+    fontSize: typography.sizes.xl,
+    fontWeight: "bold",
   },
   messageContent: {
-    ...typography.body,
-    lineHeight: 24,
+    marginBottom: spacing.xl,
   },
-  infoCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    borderRadius: borderRadius.md,
-    padding: spacing.md,
-    marginBottom: spacing.lg,
-    borderWidth: 1,
-  },
-  infoText: {
-    ...typography.bodySmall,
-    marginLeft: spacing.sm,
-    flex: 1,
+  messageText: {
+    fontSize: typography.sizes.lg,
+    lineHeight: 28,
   },
   actionButtons: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  actionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: borderRadius.md,
-    padding: spacing.md,
-    minHeight: 56,
+    flexDirection: "row",
+    gap: spacing.md,
   },
   rejectButton: {
-    // Additional styles for reject button
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
+    gap: spacing.sm,
   },
   acceptButton: {
-    // Additional styles for accept button
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
+    gap: spacing.sm,
   },
-  actionButtonText: {
-    color: '#FFFFFF',
-    ...typography.body,
-    fontWeight: '600',
-    marginLeft: spacing.sm,
+  buttonText: {
+    color: "#fff",
+    fontSize: typography.sizes.md,
+    fontWeight: "600",
   },
-  respondedCard: {
-    alignItems: 'center',
-    borderRadius: borderRadius.lg,
-    padding: spacing.xl,
-    marginTop: spacing.md,
-    borderWidth: 1,
+  statusBadge: {
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
+    alignItems: "center",
   },
-  respondedTitle: {
-    ...typography.h2,
-    marginTop: spacing.md,
-    textAlign: 'center',
-  },
-  respondedMessage: {
-    ...typography.body,
-    marginTop: spacing.sm,
-    textAlign: 'center',
+  statusText: {
+    color: "#fff",
+    fontSize: typography.sizes.md,
+    fontWeight: "600",
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.lg,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   modalContent: {
+    width: "80%",
     borderRadius: borderRadius.lg,
     padding: spacing.xl,
-    width: '100%',
-    maxWidth: 400,
-    alignItems: 'center',
+    alignItems: "center",
   },
   modalTitle: {
-    ...typography.h2,
-    marginTop: spacing.md,
-    textAlign: 'center',
+    fontSize: typography.sizes.xl,
+    fontWeight: "bold",
+    marginBottom: spacing.md,
   },
   modalMessage: {
-    ...typography.body,
-    marginTop: spacing.sm,
-    textAlign: 'center',
+    fontSize: typography.sizes.md,
+    textAlign: "center",
     marginBottom: spacing.lg,
   },
   modalButton: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
     borderRadius: borderRadius.md,
-    padding: spacing.md,
-    minWidth: 120,
-    alignItems: 'center',
   },
   modalButtonText: {
-    color: '#FFFFFF',
-    ...typography.body,
-    fontWeight: '600',
+    color: "#fff",
+    fontSize: typography.sizes.md,
+    fontWeight: "600",
   },
 });

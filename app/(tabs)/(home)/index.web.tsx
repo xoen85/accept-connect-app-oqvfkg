@@ -1,5 +1,12 @@
 
-import React, { useState, useEffect } from "react";
+import { useRouter } from "expo-router";
+import { authenticatedPost } from "@/utils/api";
+import { useTheme } from "@react-navigation/native";
+import { colors, spacing, borderRadius, typography } from "@/styles/commonStyles";
+import React, { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { IconSymbol } from "@/components/IconSymbol";
 import { 
   StyleSheet, 
   View, 
@@ -9,197 +16,130 @@ import {
   Platform,
   Modal,
   Share,
-	LogBox
+  LogBox
 } from "react-native";
-import { useTheme } from "@react-navigation/native";
-import { useAuth } from "@/contexts/AuthContext";
-import { useRouter } from "expo-router";
-import { IconSymbol } from "@/components/IconSymbol";
-import { colors, spacing, borderRadius, typography } from "@/styles/commonStyles";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { authenticatedPost } from "@/utils/api";
 
-LogBox.ignoreAllLogs(); //Ignore all log notifications
-// Predefined message - non-editable
+// Suppress warnings in development
+LogBox.ignoreLogs(['new NativeEventEmitter']);
+
 const PREDEFINED_MESSAGE = "Do you accept to have lunch with me?";
 
 export default function HomeScreen() {
-  const theme = useTheme();
-  const { user, loading: authLoading } = useAuth();
+  const { colors } = useTheme();
+  const { user, authLoading } = useAuth();
   const router = useRouter();
-  const isDark = theme.dark;
-  const themeColors = isDark ? colors.dark : colors.light;
 
-  const [sending, setSending] = useState(false);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [confirmModalConfig, setConfirmModalConfig] = useState<{
-    title: string;
-    message: string;
-    type: "success" | "error";
-  }>({ title: "", message: "", type: "success" });
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalTitle, setModalTitle] = useState("");
+  const [modalMessage, setModalMessage] = useState("");
+  const [modalType, setModalType] = useState<"success" | "error">("success");
 
+  // Redirect to auth if not logged in
   useEffect(() => {
-    console.log("[HomeScreen Web] Mounted, user:", user);
     if (!authLoading && !user) {
-      console.log("[HomeScreen Web] User not authenticated, redirecting to auth");
+      console.log("User not authenticated, redirecting to auth screen");
       router.replace("/auth");
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, router]);
 
-  const showConfirmMessage = (title: string, message: string, type: "success" | "error") => {
-    setConfirmModalConfig({ title, message, type });
-    setShowConfirmModal(true);
-  };
+  const showConfirmMessage = useCallback((title: string, message: string, type: "success" | "error") => {
+    setModalTitle(title);
+    setModalMessage(message);
+    setModalType(type);
+    setModalVisible(true);
+  }, []);
 
-  const handleAskButtonPress = async () => {
-    console.log("[HomeScreen Web] Ask button pressed - sharing link");
-    
-    // On web, we only support link sharing (no Bluetooth)
+  const handleAskButtonPress = useCallback(() => {
+    console.log("User tapped Ask button (Web)");
+    // On web, only share link is available (no BLE)
     handleShareLink();
-  };
+  }, []);
 
-  const handleShareLink = async () => {
-    console.log("[HomeScreen Web] Share link option selected");
-    setSending(true);
-
+  const handleShareLink = useCallback(async () => {
+    console.log("User tapped Share Link (Web)");
     try {
-      // Create a message with a secure link
-      const response = await authenticatedPost<{
-        id: string;
-        linkToken: string;
-        shareUrl: string;
-        expiresAt: string;
-      }>("/api/messages", {
-        recipientEmail: "", // No email for link sharing
-        content: PREDEFINED_MESSAGE,
+      console.log("Generating secure link for message");
+      const response = await authenticatedPost("/api/messages/link", {
+        message: PREDEFINED_MESSAGE,
       });
 
-      console.log("[HomeScreen Web] Message created with link:", response);
+      const shareUrl = response.url;
+      console.log("Secure link generated:", shareUrl);
 
-      let shareUrl = response.shareUrl;
-      if (!shareUrl) {
-        shareUrl = `${window.location.origin}/message/${response.linkToken}`;
-      }
-
-      // On web, we'll copy to clipboard and show the link
+      // On web, copy to clipboard
       if (navigator.clipboard) {
         await navigator.clipboard.writeText(shareUrl);
-        showConfirmMessage(
-          "Link Copied",
-          `Your secure link has been copied to clipboard:\n\n${shareUrl}\n\nShare it via WhatsApp, Messenger, or any other app. The recipient must authenticate to respond.`,
-          "success"
-        );
+        showConfirmMessage("Link Copied", "The link has been copied to your clipboard. Share it with someone!", "success");
       } else {
-        // Fallback: show the link in a modal
-        showConfirmMessage(
-          "Share This Link",
-          `Copy and share this secure link:\n\n${shareUrl}\n\nThe recipient must authenticate to respond.`,
-          "success"
-        );
+        // Fallback for older browsers
+        const textArea = document.createElement("textarea");
+        textArea.value = shareUrl;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+        showConfirmMessage("Link Copied", "The link has been copied to your clipboard. Share it with someone!", "success");
       }
 
-      console.log("[HomeScreen Web] Link generated successfully");
-    } catch (error: any) {
-      console.error("[HomeScreen Web] Error sharing link:", error);
-      showConfirmMessage(
-        "Error",
-        error?.message || "Failed to generate link. Please try again.",
-        "error"
-      );
-    } finally {
-      setSending(false);
+      console.log("Link copied to clipboard");
+    } catch (error) {
+      console.error("Error sharing link:", error);
+      showConfirmMessage("Error", "Failed to generate share link", "error");
     }
-  };
+  }, [showConfirmMessage]);
+
+  const handleCloseModal = useCallback(() => {
+    setModalVisible(false);
+  }, []);
 
   if (authLoading) {
     return (
-      <View style={[styles.container, { backgroundColor: themeColors.background }]}>
-        <ActivityIndicator size="large" color={themeColors.primary} />
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
 
-  if (!user) {
-    return null;
-  }
-
-  const userNameDisplay = user.name || "User";
-
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]} edges={['top']}>
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <Text style={[styles.greeting, { color: themeColors.text }]}>
-            Hello
-          </Text>
-          <Text style={[styles.userName, { color: themeColors.text }]}>
-            {userNameDisplay}
-          </Text>
-        </View>
-
-        <View style={styles.centerContent}>
-          <TouchableOpacity
-            style={[styles.askButton, { backgroundColor: themeColors.primary }]}
-            onPress={handleAskButtonPress}
-            disabled={sending}
-          >
-            {sending ? (
-              <ActivityIndicator color="#FFFFFF" size="large" />
-            ) : (
-              <>
-                <IconSymbol
-                  ios_icon_name="hand.raised.fill"
-                  android_material_icon_name="front-hand"
-                  size={48}
-                  color="#FFFFFF"
-                />
-                <Text style={styles.askButtonText}>Ask</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          <Text style={[styles.messagePreview, { color: themeColors.textSecondary }]}>
-            {PREDEFINED_MESSAGE}
-          </Text>
-
-          <View style={[styles.webNotice, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
-            <IconSymbol
-              ios_icon_name="info.circle"
-              android_material_icon_name="info"
-              size={20}
-              color={themeColors.primary}
-            />
-            <Text style={[styles.webNoticeText, { color: themeColors.textSecondary }]}>
-              Web version: Tap &quot;Ask&quot; to generate a shareable link. Bluetooth proximity features are available on mobile apps.
-            </Text>
-          </View>
-        </View>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={["top"]}>
+      {/* Main Ask Button */}
+      <View style={styles.centerContent}>
+        <TouchableOpacity
+          style={[styles.askButton, { backgroundColor: colors.primary }]}
+          onPress={handleAskButtonPress}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.askButtonText}>Ask</Text>
+        </TouchableOpacity>
+        <Text style={[styles.messagePreview, { color: colors.text }]}>
+          {PREDEFINED_MESSAGE}
+        </Text>
+        <Text style={[styles.webNote, { color: colors.text }]}>
+          Click to generate a shareable link
+        </Text>
       </View>
 
       {/* Confirmation Modal */}
       <Modal
-        visible={showConfirmModal}
-        transparent
+        visible={modalVisible}
         animationType="fade"
-        onRequestClose={() => setShowConfirmModal(false)}
+        transparent={true}
+        onRequestClose={handleCloseModal}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.confirmModalContent, { backgroundColor: themeColors.card }]}>
-            <IconSymbol
-              ios_icon_name={confirmModalConfig.type === "success" ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"}
-              android_material_icon_name={confirmModalConfig.type === "success" ? "check-circle" : "error"}
-              size={48}
-              color={confirmModalConfig.type === "success" ? themeColors.success : themeColors.error}
-            />
-            <Text style={[styles.confirmModalTitle, { color: themeColors.text }]}>
-              {confirmModalConfig.title}
+          <View style={[styles.confirmModalContent, { backgroundColor: colors.card }]}>
+            <Text style={[styles.confirmModalTitle, { color: colors.text }]}>
+              {modalTitle}
             </Text>
-            <Text style={[styles.confirmModalMessage, { color: themeColors.textSecondary }]}>
-              {confirmModalConfig.message}
+            <Text style={[styles.confirmModalMessage, { color: colors.text }]}>
+              {modalMessage}
             </Text>
             <TouchableOpacity
-              style={[styles.confirmModalButton, { backgroundColor: themeColors.primary }]}
-              onPress={() => setShowConfirmModal(false)}
+              style={[
+                styles.confirmModalButton,
+                { backgroundColor: modalType === "success" ? colors.primary : "#ef4444" },
+              ]}
+              onPress={handleCloseModal}
             >
               <Text style={styles.confirmModalButtonText}>OK</Text>
             </TouchableOpacity>
@@ -214,95 +154,72 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  content: {
-    flex: 1,
-    padding: spacing.lg,
-  },
-  header: {
-    marginBottom: spacing.xl,
-    paddingTop: Platform.OS === 'android' ? spacing.lg : 0,
-  },
-  greeting: {
-    ...typography.h3,
-    marginBottom: spacing.xs,
-  },
-  userName: {
-    ...typography.h1,
-  },
   centerContent: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
   },
   askButton: {
     width: 200,
     height: 200,
     borderRadius: 100,
-    justifyContent: 'center',
-    alignItems: 'center',
-    boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.3)',
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   askButtonText: {
-    color: '#FFFFFF',
-    fontSize: 32,
-    fontWeight: '700',
-    marginTop: spacing.sm,
+    fontSize: 48,
+    fontWeight: "bold",
+    color: "#fff",
   },
   messagePreview: {
-    ...typography.body,
     marginTop: spacing.xl,
-    textAlign: 'center',
-    fontStyle: 'italic',
+    fontSize: typography.sizes.lg,
+    textAlign: "center",
     paddingHorizontal: spacing.lg,
   },
-  webNotice: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: spacing.xl,
-    padding: spacing.md,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    maxWidth: 500,
-  },
-  webNoticeText: {
-    ...typography.bodySmall,
-    marginLeft: spacing.sm,
-    flex: 1,
+  webNote: {
+    marginTop: spacing.md,
+    fontSize: typography.sizes.sm,
+    textAlign: "center",
+    opacity: 0.7,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   confirmModalContent: {
+    width: "80%",
+    maxWidth: 400,
     borderRadius: borderRadius.lg,
     padding: spacing.xl,
-    margin: spacing.lg,
-    alignItems: 'center',
-    maxWidth: 500,
-    width: '90%',
+    alignItems: "center",
   },
   confirmModalTitle: {
-    ...typography.h2,
-    marginTop: spacing.md,
-    textAlign: 'center',
+    fontSize: typography.sizes.xl,
+    fontWeight: "bold",
+    marginBottom: spacing.md,
   },
   confirmModalMessage: {
-    ...typography.body,
-    marginTop: spacing.sm,
-    textAlign: 'center',
+    fontSize: typography.sizes.md,
+    textAlign: "center",
     marginBottom: spacing.lg,
   },
   confirmModalButton: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
     borderRadius: borderRadius.md,
-    padding: spacing.md,
-    minWidth: 120,
-    alignItems: 'center',
   },
   confirmModalButtonText: {
-    color: '#FFFFFF',
-    ...typography.body,
-    fontWeight: '600',
+    color: "#fff",
+    fontSize: typography.sizes.md,
+    fontWeight: "600",
   },
 });

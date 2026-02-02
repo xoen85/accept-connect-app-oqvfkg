@@ -52,6 +52,13 @@
           "modes": [],
           "bluetoothAlwaysPermission": "This app uses Bluetooth to discover nearby devices with the app installed for secure message exchange."
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to find nearby users.",
+          "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to find nearby users."
+        }
       ]
     ],
     "scheme": "Accept Connect",

@@ -97,19 +97,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchUser = async () => {
     try {
       setLoading(true);
+      console.log("[Auth] Fetching user session...");
       const session = await authClient.getSession();
+      
       if (session?.data?.user) {
+        console.log("[Auth] User session found:", session.data.user.email);
         setUser(session.data.user as User);
+        
         // Sync token to SecureStore for utils/api.ts
         if (session.data.session?.token) {
           await setBearerToken(session.data.session.token);
+          console.log("[Auth] Bearer token synced to storage");
         }
       } else {
+        console.log("[Auth] No active session found");
         setUser(null);
         await clearAuthTokens();
       }
     } catch (error) {
-      console.error("Failed to fetch user:", error);
+      console.error("[Auth] Failed to fetch user:", error);
       setUser(null);
     } finally {
       setLoading(false);
@@ -118,26 +124,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithEmail = async (email: string, password: string) => {
     try {
+      console.log("[Auth] Signing in with email:", email);
       await authClient.signIn.email({ email, password });
+      console.log("[Auth] Sign in successful, fetching user...");
       await fetchUser();
-    } catch (error) {
-      console.error("Email sign in failed:", error);
-      throw error;
+    } catch (error: any) {
+      console.error("[Auth] Email sign in failed:", error);
+      const errorMsg = error?.message || "Sign in failed. Please check your credentials.";
+      throw new Error(errorMsg);
     }
   };
 
   const signUpWithEmail = async (email: string, password: string, name?: string) => {
     try {
+      console.log("[Auth] Signing up with email:", email, "name:", name);
       await authClient.signUp.email({
         email,
         password,
         name,
-        // Ensure name is passed in header or logic if required, usually passed in body
       });
+      console.log("[Auth] Sign up successful, fetching user...");
       await fetchUser();
-    } catch (error) {
-      console.error("Email sign up failed:", error);
-      throw error;
+    } catch (error: any) {
+      console.error("[Auth] Email sign up failed:", error);
+      const errorMsg = error?.message || "Sign up failed. Email may already be in use.";
+      throw new Error(errorMsg);
     }
   };
 
@@ -174,11 +185,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     try {
+      console.log("[Auth] Signing out...");
       await authClient.signOut();
+      console.log("[Auth] Sign out successful");
     } catch (error) {
-      console.error("Sign out failed (API):", error);
+      console.error("[Auth] Sign out failed (API):", error);
     } finally {
        // Always clear local state
+       console.log("[Auth] Clearing local auth state");
        setUser(null);
        await clearAuthTokens();
     }

@@ -12,6 +12,12 @@ export default function TabLayout() {
       label: 'Home',
     },
     {
+      name: 'nearby',
+      route: '/(tabs)/nearby',
+      icon: 'location-on',
+      label: 'Nearby',
+    },
+    {
       name: 'profile',
       route: '/(tabs)/profile',
       icon: 'account-circle',
@@ -29,6 +35,7 @@ export default function TabLayout() {
         }}
       >
         <Stack.Screen key="home" name="(home)" />
+        <Stack.Screen key="nearby" name="nearby" />
         <Stack.Screen key="profile" name="profile" />
       </Stack>
       <FloatingTabBar tabs={tabs} />

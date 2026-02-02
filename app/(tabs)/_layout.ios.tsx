@@ -8,6 +8,10 @@ export default function TabLayout() {
         <Icon sf="house.fill" />
         <Label>Home</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger key="nearby" name="nearby">
+        <Icon sf="location.fill" />
+        <Label>Nearby</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger key="profile" name="profile">
         <Icon sf="person.fill" />
         <Label>Profile</Label>

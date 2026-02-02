@@ -1,3 +1,27 @@
+/**
+ * Authentication Screen
+ * 
+ * Supports multiple authentication methods:
+ * - Email/Password (username or email)
+ * - Google OAuth
+ * - Apple OAuth (iOS only)
+ * - GitHub OAuth
+ * 
+ * Backend Integration:
+ * ✅ POST /api/auth/signin - Email/password sign in
+ * ✅ POST /api/auth/signup - Email/password sign up
+ * ✅ OAuth flows handled by Better Auth
+ * 
+ * Test Credentials:
+ * To test the app, create a new account using:
+ * - Username: testuser1 (or any username)
+ * - Password: Test123! (or any password with 8+ characters)
+ * 
+ * Then create a second account to test GPS connections:
+ * - Username: testuser2
+ * - Password: Test123!
+ */
+
 import React, { useState } from "react";
 import {
   View,
@@ -6,13 +30,14 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  Alert,
   Platform,
   KeyboardAvoidingView,
   ScrollView,
+  Modal,
 } from "react-native";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "expo-router";
+import { IconSymbol } from "@/components/IconSymbol";
 
 type Mode = "signin" | "signup";
 
@@ -26,6 +51,18 @@ export default function AuthScreen() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [useUsername, setUseUsername] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [modalConfig, setModalConfig] = useState<{
+    title: string;
+    message: string;
+    type: "success" | "error";
+  }>({ title: "", message: "", type: "success" });
+
+  const showMessage = (title: string, message: string, type: "success" | "error") => {
+    setModalConfig({ title, message, type });
+    setShowModal(true);
+  };
 
   if (authLoading) {
     return (
@@ -37,7 +74,8 @@ export default function AuthScreen() {
 
   const handleEmailAuth = async () => {
     if (!email || !password) {
-      Alert.alert("Error", "Please enter email and password");
+      const fieldName = useUsername ? "username" : "email";
+      showMessage("Error", `Please enter ${fieldName} and password`, "error");
       return;
     }
 
@@ -47,15 +85,18 @@ export default function AuthScreen() {
         await signInWithEmail(email, password);
         router.replace("/");
       } else {
-        await signUpWithEmail(email, password, name);
-        Alert.alert(
+        await signUpWithEmail(email, password, name || email);
+        showMessage(
           "Success",
-          "Account created! Please check your email to verify your account."
+          "Account created successfully!",
+          "success"
         );
-        router.replace("/");
+        setTimeout(() => {
+          router.replace("/");
+        }, 1500);
       }
     } catch (error: any) {
-      Alert.alert("Error", error.message || "Authentication failed");
+      showMessage("Error", error.message || "Authentication failed", "error");
     } finally {
       setLoading(false);
     }
@@ -73,7 +114,7 @@ export default function AuthScreen() {
       }
       router.replace("/");
     } catch (error: any) {
-      Alert.alert("Error", error.message || "Authentication failed");
+      showMessage("Error", error.message || "Authentication failed", "error");
     } finally {
       setLoading(false);
     }
@@ -102,13 +143,22 @@ export default function AuthScreen() {
 
           <TextInput
             style={styles.input}
-            placeholder="Email"
+            placeholder={useUsername ? "Username" : "Email"}
             value={email}
             onChangeText={setEmail}
-            keyboardType="email-address"
+            keyboardType={useUsername ? "default" : "email-address"}
             autoCapitalize="none"
             autoCorrect={false}
           />
+
+          <TouchableOpacity
+            style={styles.toggleButton}
+            onPress={() => setUseUsername(!useUsername)}
+          >
+            <Text style={styles.toggleText}>
+              {useUsername ? "Use email instead" : "Use username instead"}
+            </Text>
+          </TouchableOpacity>
 
           <TextInput
             style={styles.input}
@@ -171,6 +221,37 @@ export default function AuthScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Message Modal */}
+      <Modal
+        visible={showModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <IconSymbol
+              ios_icon_name={modalConfig.type === "success" ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"}
+              android_material_icon_name={modalConfig.type === "success" ? "check-circle" : "error"}
+              size={48}
+              color={modalConfig.type === "success" ? "#4CAF50" : "#F44336"}
+            />
+            <Text style={styles.modalTitle}>
+              {modalConfig.title}
+            </Text>
+            <Text style={styles.modalMessage}>
+              {modalConfig.message}
+            </Text>
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => setShowModal(false)}
+            >
+              <Text style={styles.modalButtonText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -271,5 +352,53 @@ const styles = StyleSheet.create({
   },
   appleButtonText: {
     color: "#fff",
+  },
+  toggleButton: {
+    marginBottom: 8,
+    alignItems: 'flex-end',
+  },
+  toggleText: {
+    color: "#007AFF",
+    fontSize: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+    color: '#000',
+  },
+  modalMessage: {
+    fontSize: 16,
+    marginBottom: 24,
+    textAlign: 'center',
+    color: '#666',
+  },
+  modalButton: {
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

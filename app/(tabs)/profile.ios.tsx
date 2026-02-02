@@ -1,3 +1,12 @@
+/**
+ * Profile Screen (iOS) - User Account Management
+ * 
+ * iOS-specific implementation with native navigation header.
+ * 
+ * NOTE: This is a simplified iOS version. For full features including
+ * GPS connections management, see profile.tsx
+ */
+
 import React, { useState } from "react";
 import { 
   View, 

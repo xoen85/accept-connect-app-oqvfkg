@@ -1,4 +1,23 @@
-import React, { useState } from "react";
+/**
+ * Profile Screen - User Account Management
+ * 
+ * Features:
+ * - View user profile information
+ * - Manage active GPS-based connections
+ * - View all user data (GDPR compliance)
+ * - Delete user account (GDPR compliance)
+ * - Sign out functionality
+ * 
+ * Backend Integration:
+ * ✅ GET /api/connections/active - Gets all accepted connections
+ * ✅ DELETE /api/connections/{id} - Removes a connection
+ * ✅ GET /api/users/me/data - Gets all user data
+ * ✅ DELETE /api/users/me - Deletes user account
+ * 
+ * Authentication: All endpoints require Bearer token authentication
+ */
+
+import React, { useState, useEffect } from "react";
 import { 
   View, 
   Text, 
@@ -8,6 +27,7 @@ import {
   TouchableOpacity,
   Modal,
   ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { IconSymbol } from "@/components/IconSymbol";
@@ -16,6 +36,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "expo-router";
 import { colors, spacing, borderRadius, typography } from "@/styles/commonStyles";
 import { authenticatedGet, authenticatedDelete } from "@/utils/api";
+
+interface ActiveConnection {
+  id: string;
+  user_id: string;
+  username: string;
+  connected_at: string;
+}
 
 export default function ProfileScreen() {
   const theme = useTheme();
@@ -37,10 +64,87 @@ export default function ProfileScreen() {
     message: string;
     type: "success" | "error";
   }>({ title: "", message: "", type: "success" });
+  const [activeConnections, setActiveConnections] = useState<ActiveConnection[]>([]);
+  const [loadingConnections, setLoadingConnections] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showConnectionsModal, setShowConnectionsModal] = useState(false);
+  const [deletingConnectionId, setDeletingConnectionId] = useState<string | null>(null);
 
   const showMessage = (title: string, message: string, type: "success" | "error") => {
     setMessageConfig({ title, message, type });
     setShowMessageModal(true);
+  };
+
+  useEffect(() => {
+    if (user) {
+      loadActiveConnections();
+    }
+  }, [user]);
+
+  const loadActiveConnections = async () => {
+    setLoadingConnections(true);
+    try {
+      console.log("[Profile] Loading active connections...");
+      const response = await authenticatedGet<{ connections: ActiveConnection[] }>("/api/connections/active");
+      const connections = response.connections || [];
+      setActiveConnections(connections);
+      console.log("[Profile] Active connections loaded:", connections.length);
+      
+      if (connections.length > 0) {
+        console.log("[Profile] Connected users:", connections.map(c => c.username).join(", "));
+      }
+    } catch (error: any) {
+      console.error("[Profile] Error loading active connections:", error);
+      const errorMsg = error?.message || "Failed to load connections";
+      console.error("[Profile] Error details:", errorMsg);
+    } finally {
+      setLoadingConnections(false);
+    }
+  };
+
+  const handleRefreshConnections = async () => {
+    setRefreshing(true);
+    await loadActiveConnections();
+    setRefreshing(false);
+  };
+
+  const handleViewConnections = () => {
+    setShowConnectionsModal(true);
+    loadActiveConnections();
+  };
+
+  const handleDeleteConnection = async (connectionId: string) => {
+    setDeletingConnectionId(connectionId);
+    try {
+      console.log("[Profile] Deleting connection:", connectionId);
+      await authenticatedDelete(`/api/connections/${connectionId}`);
+      console.log("[Profile] Connection deleted successfully");
+      showMessage("Success", "Connection removed successfully", "success");
+      await loadActiveConnections();
+    } catch (error: any) {
+      console.error("[Profile] Error deleting connection:", error);
+      const errorMsg = error?.message || "Failed to remove connection";
+      showMessage("Error", errorMsg, "error");
+    } finally {
+      setDeletingConnectionId(null);
+    }
+  };
+
+  const formatConnectionDate = (timestamp: string): string => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) {
+      return 'Today';
+    } else if (diffDays === 1) {
+      return 'Yesterday';
+    } else if (diffDays < 7) {
+      return `${diffDays} days ago`;
+    } else {
+      return date.toLocaleDateString();
+    }
   };
 
   const handleSignOut = async () => {
@@ -141,6 +245,33 @@ export default function ProfileScreen() {
 
         {/* Menu Items */}
         <View style={[styles.menuSection, { backgroundColor: themeColors.card, borderColor: themeColors.border }]}>
+          <TouchableOpacity style={styles.menuItem} onPress={handleViewConnections}>
+            <View style={styles.menuItemLeft}>
+              <IconSymbol 
+                ios_icon_name="person.2.fill" 
+                android_material_icon_name="people" 
+                size={24} 
+                color={themeColors.primary} 
+              />
+              <Text style={[styles.menuItemText, { color: themeColors.text }]}>
+                My Connections
+              </Text>
+              {activeConnections.length > 0 && (
+                <View style={[styles.badge, { backgroundColor: themeColors.primary }]}>
+                  <Text style={styles.badgeText}>{activeConnections.length}</Text>
+                </View>
+              )}
+            </View>
+            <IconSymbol 
+              ios_icon_name="chevron.right" 
+              android_material_icon_name="arrow-forward" 
+              size={20} 
+              color={themeColors.textSecondary} 
+            />
+          </TouchableOpacity>
+
+          <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
+
           <TouchableOpacity style={styles.menuItem}>
             <View style={styles.menuItemLeft}>
               <IconSymbol 
@@ -450,6 +581,100 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Active Connections Modal */}
+      <Modal
+        visible={showConnectionsModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowConnectionsModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.connectionsModalContent, { backgroundColor: themeColors.card }]}>
+            <View style={styles.connectionsModalHeader}>
+              <Text style={[styles.modalTitle, { color: themeColors.text }]}>
+                My Connections
+              </Text>
+              <TouchableOpacity onPress={() => setShowConnectionsModal(false)}>
+                <IconSymbol
+                  ios_icon_name="xmark.circle.fill"
+                  android_material_icon_name="cancel"
+                  size={28}
+                  color={themeColors.textSecondary}
+                />
+              </TouchableOpacity>
+            </View>
+            
+            {loadingConnections ? (
+              <View style={styles.connectionsModalLoading}>
+                <ActivityIndicator size="large" color={themeColors.primary} />
+                <Text style={[styles.loadingText, { color: themeColors.textSecondary }]}>
+                  Loading connections...
+                </Text>
+              </View>
+            ) : activeConnections.length === 0 ? (
+              <View style={styles.emptyConnectionsContainer}>
+                <IconSymbol
+                  ios_icon_name="person.2.slash"
+                  android_material_icon_name="person-off"
+                  size={48}
+                  color={themeColors.textSecondary}
+                />
+                <Text style={[styles.emptyConnectionsText, { color: themeColors.text }]}>
+                  No active connections
+                </Text>
+                <Text style={[styles.emptyConnectionsSubtext, { color: themeColors.textSecondary }]}>
+                  Visit the Nearby tab to connect with users around you
+                </Text>
+              </View>
+            ) : (
+              <ScrollView 
+                style={styles.connectionsModalScroll}
+                refreshControl={
+                  <RefreshControl refreshing={refreshing} onRefresh={handleRefreshConnections} />
+                }
+              >
+                {activeConnections.map((connection) => (
+                  <View key={connection.id} style={[styles.connectionItem, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
+                    <View style={styles.connectionInfo}>
+                      <IconSymbol
+                        ios_icon_name="person.circle.fill"
+                        android_material_icon_name="account-circle"
+                        size={40}
+                        color={themeColors.primary}
+                      />
+                      <View style={styles.connectionDetails}>
+                        <Text style={[styles.connectionUsername, { color: themeColors.text }]}>
+                          {connection.username}
+                        </Text>
+                        <Text style={[styles.connectionDate, { color: themeColors.textSecondary }]}>
+                          Connected {formatConnectionDate(connection.connected_at)}
+                        </Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={[styles.deleteConnectionButton, { opacity: deletingConnectionId === connection.id ? 0.5 : 1 }]}
+                      onPress={() => handleDeleteConnection(connection.id)}
+                      disabled={deletingConnectionId === connection.id}
+                    >
+                      {deletingConnectionId === connection.id ? (
+                        <ActivityIndicator size="small" color={themeColors.error} />
+                      ) : (
+                        <IconSymbol
+                          ios_icon_name="trash.fill"
+                          android_material_icon_name="delete"
+                          size={20}
+                          color={themeColors.error}
+                        />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -616,5 +841,80 @@ const styles = StyleSheet.create({
   dataText: {
     ...typography.bodySmall,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  badge: {
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginLeft: spacing.sm,
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  connectionsModalContent: {
+    borderTopLeftRadius: borderRadius.xl,
+    borderTopRightRadius: borderRadius.xl,
+    padding: spacing.lg,
+    maxHeight: '80%',
+    minHeight: '50%',
+  },
+  connectionsModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  connectionsModalLoading: {
+    padding: spacing.xl,
+    alignItems: 'center',
+  },
+  connectionsModalScroll: {
+    flex: 1,
+  },
+  emptyConnectionsContainer: {
+    padding: spacing.xl,
+    alignItems: 'center',
+  },
+  emptyConnectionsText: {
+    ...typography.h3,
+    marginTop: spacing.md,
+    textAlign: 'center',
+  },
+  emptyConnectionsSubtext: {
+    ...typography.body,
+    marginTop: spacing.sm,
+    textAlign: 'center',
+  },
+  connectionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+  },
+  connectionInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  connectionDetails: {
+    marginLeft: spacing.md,
+    flex: 1,
+  },
+  connectionUsername: {
+    ...typography.body,
+    fontWeight: '600',
+    marginBottom: spacing.xs,
+  },
+  connectionDate: {
+    ...typography.caption,
+  },
+  deleteConnectionButton: {
+    padding: spacing.sm,
   },
 });

@@ -1,5 +1,13 @@
 
-import React, { useState, useEffect } from "react";
+import { useRouter } from "expo-router";
+import { authenticatedPost } from "@/utils/api";
+import { useTheme } from "@react-navigation/native";
+import { colors, spacing, borderRadius, typography } from "@/styles/commonStyles";
+import React, { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { IconSymbol } from "@/components/IconSymbol";
+import { BleManager, Device, State } from "react-native-ble-plx";
 import { 
   StyleSheet, 
   View, 
@@ -12,24 +20,11 @@ import {
   Share,
   PermissionsAndroid,
   Alert as RNAlert,
-	LogBox
+  LogBox
 } from "react-native";
-import { useTheme } from "@react-navigation/native";
-import { useAuth } from "@/contexts/AuthContext";
-import { useRouter } from "expo-router";
-import { IconSymbol } from "@/components/IconSymbol";
-import { colors, spacing, borderRadius, typography } from "@/styles/commonStyles";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { authenticatedPost } from "@/utils/api";
-import { BleManager, Device, State } from "react-native-ble-plx";
 
-LogBox.ignoreAllLogs(); //Ignore all log notifications
-
-// Predefined message - non-editable
-const PREDEFINED_MESSAGE = "Do you accept to have lunch with me?";
-
-// BLE Service UUID for the app (unique identifier for our app)
-const APP_SERVICE_UUID = "0000FFF0-0000-1000-8000-00805F9B34FB";
+// Suppress BLE warnings in development
+LogBox.ignoreLogs(['new NativeEventEmitter']);
 
 interface NearbyDevice {
   id: string;
@@ -37,482 +32,341 @@ interface NearbyDevice {
   rssi: number;
 }
 
+const PREDEFINED_MESSAGE = "Do you accept to have lunch with me?";
+const APP_SERVICE_UUID = "00001234-0000-1000-8000-00805f9b34fb";
+
 export default function HomeScreen() {
-  const theme = useTheme();
-  const { user, loading: authLoading } = useAuth();
+  const { colors } = useTheme();
+  const { user, authLoading } = useAuth();
   const router = useRouter();
-  const isDark = theme.dark;
-  const themeColors = isDark ? colors.dark : colors.light;
 
-  const [showOptionsModal, setShowOptionsModal] = useState(false);
-  const [scanning, setScanning] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
   const [nearbyDevices, setNearbyDevices] = useState<NearbyDevice[]>([]);
-  const [bleManager] = useState(() => new BleManager());
-  const [bleState, setBleState] = useState<State>(State.Unknown);
-  const [sending, setSending] = useState(false);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [confirmModalConfig, setConfirmModalConfig] = useState<{
-    title: string;
-    message: string;
-    type: "success" | "error";
-  }>({ title: "", message: "", type: "success" });
+  const [showDeviceModal, setShowDeviceModal] = useState(false);
+  const [bleManager, setBleManager] = useState<BleManager | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalTitle, setModalTitle] = useState("");
+  const [modalMessage, setModalMessage] = useState("");
+  const [modalType, setModalType] = useState<"success" | "error">("success");
 
+  // Redirect to auth if not logged in
   useEffect(() => {
-    console.log("[HomeScreen] Mounted, user:", user);
     if (!authLoading && !user) {
-      console.log("[HomeScreen] User not authenticated, redirecting to auth");
+      console.log("User not authenticated, redirecting to auth screen");
       router.replace("/auth");
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, router]);
 
+  // Initialize BLE Manager
   useEffect(() => {
-    // Monitor Bluetooth state
-    const subscription = bleManager.onStateChange((state) => {
-      console.log("[BLE] State changed:", state);
-      setBleState(state);
-    }, true);
+    const manager = new BleManager();
+    setBleManager(manager);
 
     return () => {
-      subscription.remove();
-      bleManager.destroy();
+      manager.destroy();
     };
   }, []);
 
-  const showConfirmMessage = (title: string, message: string, type: "success" | "error") => {
-    setConfirmModalConfig({ title, message, type });
-    setShowConfirmModal(true);
-  };
+  const showConfirmMessage = useCallback((title: string, message: string, type: "success" | "error") => {
+    setModalTitle(title);
+    setModalMessage(message);
+    setModalType(type);
+    setModalVisible(true);
+  }, []);
 
-  const requestBluetoothPermissions = async (): Promise<boolean> => {
+  const requestBluetoothPermissions = useCallback(async () => {
     if (Platform.OS === "android") {
       try {
-        if (Platform.Version >= 31) {
-          // Android 12+ requires BLUETOOTH_SCAN and BLUETOOTH_CONNECT
-          const granted = await PermissionsAndroid.requestMultiple([
-            PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-            PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-          ]);
-          
-          const allGranted = Object.values(granted).every(
-            (status) => status === PermissionsAndroid.RESULTS.GRANTED
-          );
-          
-          if (!allGranted) {
-            showConfirmMessage(
-              "Permission Required",
-              "Bluetooth permissions are required to discover nearby devices.",
-              "error"
-            );
-            return false;
-          }
-        } else {
-          // Android 11 and below
-          const granted = await PermissionsAndroid.request(
-            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-          );
-          
-          if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-            showConfirmMessage(
-              "Permission Required",
-              "Location permission is required to discover nearby devices.",
-              "error"
-            );
-            return false;
-          }
+        const granted = await PermissionsAndroid.requestMultiple([
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        ]);
+
+        const allGranted = Object.values(granted).every(
+          (status) => status === PermissionsAndroid.RESULTS.GRANTED
+        );
+
+        if (!allGranted) {
+          showConfirmMessage("Permissions Required", "Bluetooth and location permissions are required to find nearby devices", "error");
+          return false;
         }
+        return true;
       } catch (error) {
-        console.error("[BLE] Permission request error:", error);
+        console.error("Error requesting permissions:", error);
         return false;
       }
     }
-    
     return true;
-  };
+  }, [showConfirmMessage]);
 
-  const handleAskButtonPress = async () => {
-    console.log("[HomeScreen] Ask button pressed");
-    
-    // Check Bluetooth state
-    if (bleState !== State.PoweredOn) {
-      showConfirmMessage(
-        "Bluetooth Required",
-        "Please enable Bluetooth to discover nearby devices.",
-        "error"
-      );
+  const handleAskButtonPress = useCallback(async () => {
+    console.log("User tapped Ask button");
+    // Show options: Scan for nearby devices or Share link
+    RNAlert.alert(
+      "Send Request",
+      "How would you like to send your request?",
+      [
+        {
+          text: "Nearby Devices",
+          onPress: async () => {
+            const hasPermissions = await requestBluetoothPermissions();
+            if (hasPermissions) {
+              startScanning();
+            }
+          },
+        },
+        {
+          text: "Share Link",
+          onPress: () => handleShareLink(),
+        },
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+      ]
+    );
+  }, [requestBluetoothPermissions]);
+
+  const startScanning = useCallback(async () => {
+    if (!bleManager) {
+      console.log("BLE Manager not initialized");
+      showConfirmMessage("Error", "Bluetooth not available", "error");
       return;
     }
 
-    // Request permissions
-    const hasPermissions = await requestBluetoothPermissions();
-    if (!hasPermissions) {
-      return;
-    }
-
-    // Open options modal and start scanning
-    setShowOptionsModal(true);
-    startScanning();
-  };
-
-  const startScanning = async () => {
-    console.log("[BLE] Starting scan for nearby devices");
-    setScanning(true);
+    console.log("Starting BLE scan for nearby devices");
+    setIsScanning(true);
     setNearbyDevices([]);
+    setShowDeviceModal(true);
 
     try {
-      // Scan for devices advertising our app's service UUID
-      bleManager.startDeviceScan(
-        [APP_SERVICE_UUID],
-        { allowDuplicates: false },
-        (error, device) => {
-          if (error) {
-            console.error("[BLE] Scan error:", error);
-            return;
-          }
+      const state = await bleManager.state();
+      if (state !== State.PoweredOn) {
+        showConfirmMessage("Bluetooth Off", "Please enable Bluetooth to find nearby devices", "error");
+        setIsScanning(false);
+        setShowDeviceModal(false);
+        return;
+      }
 
-          if (device && device.name) {
-            console.log("[BLE] Found device:", device.name, device.id);
-            setNearbyDevices((prev) => {
-              // Avoid duplicates
-              if (prev.some((d) => d.id === device.id)) {
-                return prev;
-              }
-              return [
-                ...prev,
-                {
-                  id: device.id,
-                  name: device.name || "Unknown Device",
-                  rssi: device.rssi || -100,
-                },
-              ];
-            });
-          }
+      bleManager.startDeviceScan(null, null, (error, device) => {
+        if (error) {
+          console.error("BLE scan error:", error);
+          setIsScanning(false);
+          return;
         }
-      );
+
+        if (device && device.name) {
+          setNearbyDevices((prev) => {
+            const exists = prev.find((d) => d.id === device.id);
+            if (!exists) {
+              console.log("Found device:", device.name, "RSSI:", device.rssi);
+              return [...prev, { id: device.id, name: device.name, rssi: device.rssi || -100 }];
+            }
+            return prev;
+          });
+        }
+      });
 
       // Stop scanning after 10 seconds
       setTimeout(() => {
-        stopScanning();
+        console.log("Stopping BLE scan");
+        bleManager.stopDeviceScan();
+        setIsScanning(false);
       }, 10000);
     } catch (error) {
-      console.error("[BLE] Failed to start scanning:", error);
-      setScanning(false);
+      console.error("Error starting BLE scan:", error);
+      showConfirmMessage("Error", "Failed to start scanning", "error");
+      setIsScanning(false);
+      setShowDeviceModal(false);
     }
-  };
+  }, [bleManager, showConfirmMessage]);
 
-  const stopScanning = () => {
-    console.log("[BLE] Stopping scan");
-    bleManager.stopDeviceScan();
-    setScanning(false);
-  };
+  const stopScanning = useCallback(() => {
+    if (bleManager) {
+      console.log("User stopped BLE scan");
+      bleManager.stopDeviceScan();
+      setIsScanning(false);
+    }
+  }, [bleManager]);
 
-  const handleSelectNearbyDevice = async (device: NearbyDevice) => {
-    console.log("[HomeScreen] Selected nearby device:", device.name);
+  const handleSelectNearbyDevice = useCallback(async (device: NearbyDevice) => {
+    console.log("User selected device:", device.name);
+    setShowDeviceModal(false);
     stopScanning();
-    setShowOptionsModal(false);
-    setSending(true);
 
     try {
-      // Create proximity session
-      const sessionResponse = await authenticatedPost<{
-        sessionId: string;
-        proximityToken: string;
-        expiresAt: string;
-      }>("/api/proximity/session", {
-        expiresIn: 5 * 60 * 1000, // 5 minutes
+      console.log("Creating proximity session for device:", device.id);
+      const response = await authenticatedPost("/api/proximity/sessions", {
+        recipientDeviceId: device.id,
+        message: PREDEFINED_MESSAGE,
       });
 
-      console.log("[HomeScreen] Proximity session created:", sessionResponse);
-
-      // Send message via proximity session
-      await authenticatedPost(`/api/proximity/session/${sessionResponse.proximityToken}/send`, {
-        content: PREDEFINED_MESSAGE,
-      });
-
-      console.log("[HomeScreen] Message sent via proximity");
-
-      // TODO: Send push notification to the selected device
-      // This would require the recipient device to be registered with a push token
-      // For now, we'll show success message
-      
-      showConfirmMessage(
-        "Request Sent",
-        `Your request has been sent to ${device.name}. They will receive a notification.`,
-        "success"
-      );
-    } catch (error: any) {
-      console.error("[HomeScreen] Error sending proximity request:", error);
-      showConfirmMessage(
-        "Error",
-        error?.message || "Failed to send request. Please try again.",
-        "error"
-      );
-    } finally {
-      setSending(false);
+      console.log("Proximity session created:", response);
+      showConfirmMessage("Success", "Request sent to nearby device!", "success");
+    } catch (error) {
+      console.error("Error creating proximity session:", error);
+      showConfirmMessage("Error", "Failed to send request to device", "error");
     }
-  };
+  }, [stopScanning, showConfirmMessage]);
 
-  const handleShareLink = async () => {
-    console.log("[HomeScreen] Share link option selected");
-    stopScanning();
-    setShowOptionsModal(false);
-    setSending(true);
-
+  const handleShareLink = useCallback(async () => {
+    console.log("User tapped Share Link");
     try {
-      // Create a message with a secure link
-      const response = await authenticatedPost<{
-        id: string;
-        linkToken: string;
-        shareUrl: string;
-        expiresAt: string;
-      }>("/api/messages", {
-        recipientEmail: "", // No email for link sharing
-        content: PREDEFINED_MESSAGE,
+      console.log("Generating secure link for message");
+      const response = await authenticatedPost("/api/messages/link", {
+        message: PREDEFINED_MESSAGE,
       });
 
-      console.log("[HomeScreen] Message created with link:", response);
+      const shareUrl = response.url;
+      console.log("Secure link generated:", shareUrl);
 
-      let shareUrl = response.shareUrl;
-      if (!shareUrl) {
-        if (Platform.OS === "web") {
-          shareUrl = `${window.location.origin}/message/${response.linkToken}`;
-        } else {
-          shareUrl = `https://acceptconnect.app/message/${response.linkToken}`;
-        }
-      }
-
-      // Share via external apps (WhatsApp, Messenger, etc.)
       await Share.share({
-        message: `${PREDEFINED_MESSAGE}\n\nPlease open this link to respond: ${shareUrl}`,
+        message: `${PREDEFINED_MESSAGE}\n\nRespond here: ${shareUrl}`,
         url: shareUrl,
-        title: "Accept Connect Request",
       });
 
-      console.log("[HomeScreen] Link shared successfully");
-      showConfirmMessage(
-        "Link Shared",
-        "Your secure link has been shared. The recipient must authenticate to respond.",
-        "success"
-      );
-    } catch (error: any) {
-      console.error("[HomeScreen] Error sharing link:", error);
-      showConfirmMessage(
-        "Error",
-        error?.message || "Failed to share link. Please try again.",
-        "error"
-      );
-    } finally {
-      setSending(false);
+      console.log("Link shared successfully");
+    } catch (error) {
+      console.error("Error sharing link:", error);
+      showConfirmMessage("Error", "Failed to generate share link", "error");
     }
-  };
+  }, [showConfirmMessage]);
 
-  const handleCloseModal = () => {
-    stopScanning();
-    setShowOptionsModal(false);
-  };
+  const handleCloseModal = useCallback(() => {
+    setModalVisible(false);
+  }, []);
 
   if (authLoading) {
     return (
-      <View style={[styles.container, { backgroundColor: themeColors.background }]}>
-        <ActivityIndicator size="large" color={themeColors.primary} />
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
 
-  if (!user) {
-    return null;
-  }
-
-  const userNameDisplay = user.name || "User";
-
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]} edges={['top']}>
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <Text style={[styles.greeting, { color: themeColors.text }]}>
-            Hello
-          </Text>
-          <Text style={[styles.userName, { color: themeColors.text }]}>
-            {userNameDisplay}
-          </Text>
-        </View>
-
-        <View style={styles.centerContent}>
-          <TouchableOpacity
-            style={[styles.askButton, { backgroundColor: themeColors.primary }]}
-            onPress={handleAskButtonPress}
-            disabled={sending}
-          >
-            {sending ? (
-              <ActivityIndicator color="#FFFFFF" size="large" />
-            ) : (
-              <>
-                <IconSymbol
-                  ios_icon_name="hand.raised.fill"
-                  android_material_icon_name="front-hand"
-                  size={48}
-                  color="#FFFFFF"
-                />
-                <Text style={styles.askButtonText}>Ask</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          <Text style={[styles.messagePreview, { color: themeColors.textSecondary }]}>
-            {PREDEFINED_MESSAGE}
-          </Text>
-        </View>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={["top"]}>
+      {/* Main Ask Button */}
+      <View style={styles.centerContent}>
+        <TouchableOpacity
+          style={[styles.askButton, { backgroundColor: colors.primary }]}
+          onPress={handleAskButtonPress}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.askButtonText}>Ask</Text>
+        </TouchableOpacity>
+        <Text style={[styles.messagePreview, { color: colors.text }]}>
+          {PREDEFINED_MESSAGE}
+        </Text>
       </View>
 
-      {/* Options Modal */}
+      {/* Nearby Devices Modal */}
       <Modal
-        visible={showOptionsModal}
-        transparent
+        visible={showDeviceModal}
         animationType="slide"
-        onRequestClose={handleCloseModal}
+        transparent={true}
+        onRequestClose={() => {
+          stopScanning();
+          setShowDeviceModal(false);
+        }}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: themeColors.card }]}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: themeColors.text }]}>
-                Send Request
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                Nearby Devices
               </Text>
-              <TouchableOpacity onPress={handleCloseModal}>
-                <IconSymbol
-                  ios_icon_name="xmark.circle.fill"
-                  android_material_icon_name="cancel"
-                  size={28}
-                  color={themeColors.textSecondary}
-                />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.modalSection}>
-              <View style={styles.sectionHeader}>
-                <IconSymbol
-                  ios_icon_name="antenna.radiowaves.left.and.right"
-                  android_material_icon_name="bluetooth"
-                  size={24}
-                  color={themeColors.primary}
-                />
-                <Text style={[styles.sectionTitle, { color: themeColors.text }]}>
-                  Nearby Devices
-                </Text>
-              </View>
-
-              {scanning && (
-                <View style={styles.scanningIndicator}>
-                  <ActivityIndicator color={themeColors.primary} />
-                  <Text style={[styles.scanningText, { color: themeColors.textSecondary }]}>
-                    Scanning for nearby devices...
-                  </Text>
-                </View>
-              )}
-
-              {!scanning && nearbyDevices.length === 0 && (
-                <Text style={[styles.emptyText, { color: themeColors.textSecondary }]}>
-                  No nearby devices found. Make sure Bluetooth is enabled on both devices.
-                </Text>
-              )}
-
-              {nearbyDevices.length > 0 && (
-                <FlatList
-                  data={nearbyDevices}
-                  keyExtractor={(item) => item.id}
-                  renderItem={({ item }) => (
-                    <TouchableOpacity
-                      style={[styles.deviceItem, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}
-                      onPress={() => handleSelectNearbyDevice(item)}
-                    >
-                      <IconSymbol
-                        ios_icon_name="iphone"
-                        android_material_icon_name="phone-android"
-                        size={24}
-                        color={themeColors.primary}
-                      />
-                      <View style={styles.deviceInfo}>
-                        <Text style={[styles.deviceName, { color: themeColors.text }]}>
-                          {item.name}
-                        </Text>
-                        <Text style={[styles.deviceSignal, { color: themeColors.textSecondary }]}>
-                          Signal: {item.rssi} dBm
-                        </Text>
-                      </View>
-                      <IconSymbol
-                        ios_icon_name="chevron.right"
-                        android_material_icon_name="chevron-right"
-                        size={20}
-                        color={themeColors.textSecondary}
-                      />
-                    </TouchableOpacity>
-                  )}
-                  style={styles.deviceList}
-                />
-              )}
-            </View>
-
-            <View style={styles.divider} />
-
-            <View style={styles.modalSection}>
-              <View style={styles.sectionHeader}>
-                <IconSymbol
-                  ios_icon_name="link"
-                  android_material_icon_name="link"
-                  size={24}
-                  color={themeColors.primary}
-                />
-                <Text style={[styles.sectionTitle, { color: themeColors.text }]}>
-                  Share Link
-                </Text>
-              </View>
-
-              <Text style={[styles.sectionDescription, { color: themeColors.textSecondary }]}>
-                Share a secure link via WhatsApp, Messenger, or other apps. The recipient must authenticate to respond.
-              </Text>
-
               <TouchableOpacity
-                style={[styles.shareLinkButton, { backgroundColor: themeColors.primary }]}
-                onPress={handleShareLink}
+                onPress={() => {
+                  stopScanning();
+                  setShowDeviceModal(false);
+                }}
               >
                 <IconSymbol
-                  ios_icon_name="square.and.arrow.up"
-                  android_material_icon_name="share"
-                  size={20}
-                  color="#FFFFFF"
+                  ios_icon_name="xmark"
+                  android_material_icon_name="close"
+                  size={24}
+                  color={colors.text}
                 />
-                <Text style={styles.shareLinkButtonText}>
-                  Share Secure Link
-                </Text>
               </TouchableOpacity>
             </View>
+
+            {isScanning && (
+              <View style={styles.scanningIndicator}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={[styles.scanningText, { color: colors.text }]}>
+                  Scanning for devices...
+                </Text>
+              </View>
+            )}
+
+            <FlatList
+              data={nearbyDevices}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.deviceItem, { borderBottomColor: colors.border }]}
+                  onPress={() => handleSelectNearbyDevice(item)}
+                >
+                  <View>
+                    <Text style={[styles.deviceName, { color: colors.text }]}>
+                      {item.name}
+                    </Text>
+                    <Text style={[styles.deviceRssi, { color: colors.text }]}>
+                      Signal: {item.rssi} dBm
+                    </Text>
+                  </View>
+                  <IconSymbol
+                    ios_icon_name="chevron.right"
+                    android_material_icon_name="arrow-forward"
+                    size={20}
+                    color={colors.text}
+                  />
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                !isScanning ? (
+                  <Text style={[styles.emptyText, { color: colors.text }]}>
+                    No devices found
+                  </Text>
+                ) : null
+              }
+            />
+
+            {isScanning && (
+              <TouchableOpacity
+                style={[styles.stopButton, { backgroundColor: colors.primary }]}
+                onPress={stopScanning}
+              >
+                <Text style={styles.stopButtonText}>Stop Scanning</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </Modal>
 
       {/* Confirmation Modal */}
       <Modal
-        visible={showConfirmModal}
-        transparent
+        visible={modalVisible}
         animationType="fade"
-        onRequestClose={() => setShowConfirmModal(false)}
+        transparent={true}
+        onRequestClose={handleCloseModal}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.confirmModalContent, { backgroundColor: themeColors.card }]}>
-            <IconSymbol
-              ios_icon_name={confirmModalConfig.type === "success" ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"}
-              android_material_icon_name={confirmModalConfig.type === "success" ? "check-circle" : "error"}
-              size={48}
-              color={confirmModalConfig.type === "success" ? themeColors.success : themeColors.error}
-            />
-            <Text style={[styles.confirmModalTitle, { color: themeColors.text }]}>
-              {confirmModalConfig.title}
+          <View style={[styles.confirmModalContent, { backgroundColor: colors.card }]}>
+            <Text style={[styles.confirmModalTitle, { color: colors.text }]}>
+              {modalTitle}
             </Text>
-            <Text style={[styles.confirmModalMessage, { color: themeColors.textSecondary }]}>
-              {confirmModalConfig.message}
+            <Text style={[styles.confirmModalMessage, { color: colors.text }]}>
+              {modalMessage}
             </Text>
             <TouchableOpacity
-              style={[styles.confirmModalButton, { backgroundColor: themeColors.primary }]}
-              onPress={() => setShowConfirmModal(false)}
+              style={[
+                styles.confirmModalButton,
+                { backgroundColor: modalType === "success" ? colors.primary : "#ef4444" },
+              ]}
+              onPress={handleCloseModal}
             >
               <Text style={styles.confirmModalButtonText}>OK</Text>
             </TouchableOpacity>
@@ -527,167 +381,121 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  content: {
-    flex: 1,
-    padding: spacing.lg,
-  },
-  header: {
-    marginBottom: spacing.xl,
-    paddingTop: Platform.OS === 'android' ? spacing.lg : 0,
-  },
-  greeting: {
-    ...typography.h3,
-    marginBottom: spacing.xs,
-  },
-  userName: {
-    ...typography.h1,
-  },
   centerContent: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
   },
   askButton: {
     width: 200,
     height: 200,
     borderRadius: 100,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
   },
   askButtonText: {
-    color: '#FFFFFF',
-    fontSize: 32,
-    fontWeight: '700',
-    marginTop: spacing.sm,
+    fontSize: 48,
+    fontWeight: "bold",
+    color: "#fff",
   },
   messagePreview: {
-    ...typography.body,
     marginTop: spacing.xl,
-    textAlign: 'center',
-    fontStyle: 'italic',
+    fontSize: typography.sizes.lg,
+    textAlign: "center",
     paddingHorizontal: spacing.lg,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   modalContent: {
-    borderTopLeftRadius: borderRadius.xl,
-    borderTopRightRadius: borderRadius.xl,
+    width: "90%",
+    maxHeight: "80%",
+    borderRadius: borderRadius.lg,
     padding: spacing.lg,
-    maxHeight: '80%',
   },
   modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: spacing.md,
   },
   modalTitle: {
-    ...typography.h2,
-  },
-  modalSection: {
-    marginBottom: spacing.lg,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  sectionTitle: {
-    ...typography.h3,
-    marginLeft: spacing.sm,
-  },
-  sectionDescription: {
-    ...typography.bodySmall,
-    marginBottom: spacing.md,
+    fontSize: typography.sizes.xl,
+    fontWeight: "bold",
   },
   scanningIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: spacing.md,
   },
   scanningText: {
-    ...typography.body,
     marginLeft: spacing.sm,
-  },
-  emptyText: {
-    ...typography.bodySmall,
-    textAlign: 'center',
-    padding: spacing.md,
-  },
-  deviceList: {
-    maxHeight: 200,
+    fontSize: typography.sizes.md,
   },
   deviceItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.md,
-    borderRadius: borderRadius.md,
-    marginBottom: spacing.sm,
-    borderWidth: 1,
-  },
-  deviceInfo: {
-    flex: 1,
-    marginLeft: spacing.sm,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
   },
   deviceName: {
-    ...typography.body,
-    fontWeight: '600',
+    fontSize: typography.sizes.md,
+    fontWeight: "600",
   },
-  deviceSignal: {
-    ...typography.caption,
+  deviceRssi: {
+    fontSize: typography.sizes.sm,
+    marginTop: 4,
   },
-  divider: {
-    height: 1,
-    backgroundColor: '#E0E0E0',
-    marginVertical: spacing.md,
+  emptyText: {
+    textAlign: "center",
+    fontSize: typography.sizes.md,
+    marginTop: spacing.lg,
   },
-  shareLinkButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.md,
+  stopButton: {
+    marginTop: spacing.md,
+    paddingVertical: spacing.md,
     borderRadius: borderRadius.md,
+    alignItems: "center",
   },
-  shareLinkButtonText: {
-    color: '#FFFFFF',
-    ...typography.body,
-    fontWeight: '600',
-    marginLeft: spacing.sm,
+  stopButtonText: {
+    color: "#fff",
+    fontSize: typography.sizes.md,
+    fontWeight: "600",
   },
   confirmModalContent: {
+    width: "80%",
     borderRadius: borderRadius.lg,
     padding: spacing.xl,
-    margin: spacing.lg,
-    alignItems: 'center',
+    alignItems: "center",
   },
   confirmModalTitle: {
-    ...typography.h2,
-    marginTop: spacing.md,
-    textAlign: 'center',
+    fontSize: typography.sizes.xl,
+    fontWeight: "bold",
+    marginBottom: spacing.md,
   },
   confirmModalMessage: {
-    ...typography.body,
-    marginTop: spacing.sm,
-    textAlign: 'center',
+    fontSize: typography.sizes.md,
+    textAlign: "center",
     marginBottom: spacing.lg,
   },
   confirmModalButton: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
     borderRadius: borderRadius.md,
-    padding: spacing.md,
-    minWidth: 120,
-    alignItems: 'center',
   },
   confirmModalButtonText: {
-    color: '#FFFFFF',
-    ...typography.body,
-    fontWeight: '600',
+    color: "#fff",
+    fontSize: typography.sizes.md,
+    fontWeight: "600",
   },
 });
