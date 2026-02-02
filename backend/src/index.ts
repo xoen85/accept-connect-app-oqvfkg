@@ -11,6 +11,8 @@ import { registerUserPreferencesRoutes } from './routes/user-preferences.js';
 import { registerPasswordRecoveryRoutes } from './routes/password-recovery.js';
 import { registerSharingRoutes } from './routes/sharing.js';
 import { registerOAuthProfileRoutes } from './routes/oauth-profile.js';
+import { registerLocationRoutes } from './routes/location.js';
+import { registerConnectionRoutes } from './routes/connections.js';
 
 // Combine app and auth schemas
 const schema = { ...appSchema, ...authSchema };
@@ -61,6 +63,8 @@ registerUserPreferencesRoutes(app);
 registerPasswordRecoveryRoutes(app);
 registerSharingRoutes(app);
 registerOAuthProfileRoutes(app);
+registerLocationRoutes(app);
+registerConnectionRoutes(app);
 
 await app.run();
 app.logger.info('Application running');

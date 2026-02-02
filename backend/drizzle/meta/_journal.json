@@ -15,6 +15,13 @@
       "when": 1769786778042,
       "tag": "20260130152618_white_black_cat",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1770046532671,
+      "tag": "20260202153532_wise_red_ghost",
+      "breakpoints": true
     }
   ]
 }

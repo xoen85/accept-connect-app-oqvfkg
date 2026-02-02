@@ -6,6 +6,8 @@ import {
   boolean,
   index,
   jsonb,
+  numeric,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { user } from './auth-schema.js';
 
@@ -172,5 +174,62 @@ export const passwordResetTokens = pgTable(
     index('password_reset_tokens_user_id_idx').on(table.userId),
     index('password_reset_tokens_token_idx').on(table.token),
     index('password_reset_tokens_expires_at_idx').on(table.expiresAt),
+  ]
+);
+
+/**
+ * User locations table for GPS-based device discovery
+ * Stores the current GPS coordinates of each user
+ */
+export const userLocations = pgTable(
+  'user_locations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id').notNull().unique().references(() => user.id, {
+      onDelete: 'cascade',
+    }),
+    latitude: numeric('latitude', { precision: 10, scale: 8 }).notNull(),
+    longitude: numeric('longitude', { precision: 11, scale: 8 }).notNull(),
+    accuracy: numeric('accuracy', { precision: 10, scale: 2 }), // in meters
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('user_locations_user_id_idx').on(table.userId),
+    index('user_locations_coords_idx').on(table.latitude, table.longitude),
+  ]
+);
+
+/**
+ * Device connections table for GPS-based connection requests
+ * Tracks connection requests between nearby users
+ */
+export const deviceConnections = pgTable(
+  'device_connections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    requesterUserId: text('requester_user_id').notNull().references(() => user.id, {
+      onDelete: 'cascade',
+    }),
+    targetUserId: text('target_user_id').notNull().references(() => user.id, {
+      onDelete: 'cascade',
+    }),
+    status: text('status', {
+      enum: ['pending', 'accepted', 'rejected'],
+    })
+      .default('pending')
+      .notNull(),
+    distanceMeters: numeric('distance_meters', { precision: 10, scale: 2 }), // in meters
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index('device_connections_requester_user_id_idx').on(table.requesterUserId),
+    index('device_connections_target_user_id_idx').on(table.targetUserId),
+    index('device_connections_status_idx').on(table.status),
+    uniqueIndex('device_connections_unique_pair').on(table.requesterUserId, table.targetUserId),
   ]
 );
