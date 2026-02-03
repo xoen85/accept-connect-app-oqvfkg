@@ -13,6 +13,7 @@ import { registerSharingRoutes } from './routes/sharing.js';
 import { registerOAuthProfileRoutes } from './routes/oauth-profile.js';
 import { registerLocationRoutes } from './routes/location.js';
 import { registerConnectionRoutes } from './routes/connections.js';
+import { registerAuthRoutes } from './routes/auth.js';
 
 // Combine app and auth schemas
 const schema = { ...appSchema, ...authSchema };
@@ -24,15 +25,21 @@ export const app = await createApplication(schema);
 export type App = typeof app;
 
 // Enable authentication with Better Auth
-// Supports: Google, Apple, GitHub + Email/Password
+// Supports: Google (Web + Android), Apple, GitHub + Email/Password
+// Email/password authentication is enabled by default in Better Auth
 // For SPID (Italian Digital Identity): implement custom OpenID Connect endpoint separately
 app.withAuth({
   socialProviders: {
-    // Google OAuth (supports both proxy and custom credentials)
+    // Google OAuth (supports Web and Android builds)
+    // For Android: Package name is com.alessiobisulca.acceptconnect.com
+    // SHA-1 fingerprints are configured via environment variables
     google: process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
       ? {
           clientId: process.env.GOOGLE_CLIENT_ID,
           clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          // Note: Android authentication uses the same OAuth client ID with SHA-1 fingerprint verification
+          // Package name: com.alessiobisulca.acceptconnect.com
+          // Configure development and production SHA-1 fingerprints via ANDROID_SHA1_FINGERPRINTS env var
         }
       : undefined,
     // Apple OAuth (supports both proxy and custom credentials)
@@ -65,6 +72,7 @@ registerSharingRoutes(app);
 registerOAuthProfileRoutes(app);
 registerLocationRoutes(app);
 registerConnectionRoutes(app);
+registerAuthRoutes(app);
 
 await app.run();
 app.logger.info('Application running');
