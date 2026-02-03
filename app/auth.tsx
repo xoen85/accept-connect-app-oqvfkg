@@ -12,6 +12,27 @@
  * ✅ POST /api/auth/signup - Email/password sign up
  * ✅ OAuth flows handled by Better Auth
  * 
+ * IMPORTANT: Google OAuth Configuration for Android APK
+ * ========================================================
+ * To enable Google Sign-In on Android builds, you MUST:
+ * 
+ * 1. Get your SHA-1 fingerprint:
+ *    For debug builds:
+ *    keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android
+ * 
+ *    For release builds:
+ *    keytool -list -v -keystore /path/to/your/release.keystore -alias your-key-alias
+ * 
+ * 2. Add SHA-1 to Google Cloud Console:
+ *    - Go to: https://console.cloud.google.com/apis/credentials
+ *    - Select your OAuth 2.0 Client ID for Android
+ *    - Add the SHA-1 fingerprint
+ *    - Package name: com.alessiobisulca.acceptconnect.com
+ * 
+ * 3. Verify the Android OAuth Client ID is active and linked
+ * 
+ * 4. Test the authentication and check logs for detailed error messages
+ * 
  * Test Credentials:
  * To test the app, create a new account using:
  * - Username: testuser1 (or any username)
@@ -73,38 +94,82 @@ export default function AuthScreen() {
   }
 
   const handleEmailAuth = async () => {
+    console.log(`[AuthScreen] handleEmailAuth called - mode: ${mode}, email: ${email}, useUsername: ${useUsername}`);
+    
     if (!email || !password) {
       const fieldName = useUsername ? "username" : "email";
-      showMessage("Error", `Please enter ${fieldName} and password`, "error");
+      const errorMsg = `Please enter ${fieldName} and password`;
+      console.log(`[AuthScreen] Validation error: ${errorMsg}`);
+      showMessage("Validation Error", errorMsg, "error");
+      return;
+    }
+
+    if (password.length < 8) {
+      const errorMsg = "Password must be at least 8 characters";
+      console.log(`[AuthScreen] Validation error: ${errorMsg}`);
+      showMessage("Validation Error", errorMsg, "error");
       return;
     }
 
     setLoading(true);
+    console.log(`[AuthScreen] Starting ${mode} process...`);
+    
     try {
       if (mode === "signin") {
+        console.log(`[AuthScreen] Calling signInWithEmail...`);
         await signInWithEmail(email, password);
+        console.log(`[AuthScreen] Sign in successful, navigating to home...`);
         router.replace("/");
       } else {
+        console.log(`[AuthScreen] Calling signUpWithEmail...`);
         await signUpWithEmail(email, password, name || email);
+        console.log(`[AuthScreen] Sign up successful!`);
         showMessage(
           "Success",
-          "Account created successfully!",
+          "Account created successfully! You will be redirected to the home screen.",
           "success"
         );
         setTimeout(() => {
+          console.log(`[AuthScreen] Navigating to home...`);
           router.replace("/");
         }, 1500);
       }
     } catch (error: any) {
-      showMessage("Error", error.message || "Authentication failed", "error");
+      console.error(`[AuthScreen] ${mode} failed:`, error);
+      console.error(`[AuthScreen] Error object:`, JSON.stringify(error, null, 2));
+      
+      // Extract the most meaningful error message
+      let errorMsg = "Authentication failed. Please try again.";
+      
+      if (error?.message) {
+        errorMsg = error.message;
+      } else if (error?.error) {
+        errorMsg = error.error;
+      } else if (error?.body?.message) {
+        errorMsg = error.body.message;
+      } else if (typeof error === 'string') {
+        errorMsg = error;
+      }
+      
+      console.error(`[AuthScreen] Showing error to user: ${errorMsg}`);
+      showMessage(
+        mode === "signin" ? "Sign In Failed" : "Sign Up Failed", 
+        errorMsg, 
+        "error"
+      );
     } finally {
       setLoading(false);
+      console.log(`[AuthScreen] ${mode} process completed`);
     }
   };
 
   const handleSocialAuth = async (provider: "google" | "apple" | "github") => {
+    console.log(`[AuthScreen] handleSocialAuth called - provider: ${provider}`);
     setLoading(true);
+    
     try {
+      console.log(`[AuthScreen] Starting ${provider} authentication...`);
+      
       if (provider === "google") {
         await signInWithGoogle();
       } else if (provider === "apple") {
@@ -112,11 +177,32 @@ export default function AuthScreen() {
       } else if (provider === "github") {
         await signInWithGitHub();
       }
+      
+      console.log(`[AuthScreen] ${provider} authentication successful, navigating to home...`);
       router.replace("/");
     } catch (error: any) {
-      showMessage("Error", error.message || "Authentication failed", "error");
+      console.error(`[AuthScreen] ${provider} authentication failed:`, error);
+      
+      // Provide helpful error messages for common OAuth issues
+      let errorMsg = error.message || `${provider} authentication failed. Please try again.`;
+      
+      // Add specific guidance for Google OAuth on Android
+      if (provider === "google" && Platform.OS === "android") {
+        if (errorMsg.includes("403") || errorMsg.includes("unauthorized") || errorMsg.includes("invalid")) {
+          errorMsg = `Google Sign-In failed. This may be due to:\n\n` +
+            `1. Missing SHA-1 fingerprint in Google Cloud Console\n` +
+            `2. Incorrect Android package name\n` +
+            `3. OAuth client ID not configured\n\n` +
+            `Please check the app documentation for setup instructions.\n\n` +
+            `Original error: ${errorMsg}`;
+        }
+      }
+      
+      console.error(`[AuthScreen] Showing error to user: ${errorMsg}`);
+      showMessage("Authentication Error", errorMsg, "error");
     } finally {
       setLoading(false);
+      console.log(`[AuthScreen] ${provider} authentication process completed`);
     }
   };
 
@@ -240,9 +326,11 @@ export default function AuthScreen() {
             <Text style={styles.modalTitle}>
               {modalConfig.title}
             </Text>
-            <Text style={styles.modalMessage}>
-              {modalConfig.message}
-            </Text>
+            <ScrollView style={styles.modalMessageContainer}>
+              <Text style={styles.modalMessage}>
+                {modalConfig.message}
+              </Text>
+            </ScrollView>
             <TouchableOpacity
               style={styles.modalButton}
               onPress={() => setShowModal(false)}
@@ -374,6 +462,7 @@ const styles = StyleSheet.create({
     padding: 24,
     width: '100%',
     maxWidth: 400,
+    maxHeight: '80%',
     alignItems: 'center',
   },
   modalTitle: {
@@ -384,11 +473,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: '#000',
   },
+  modalMessageContainer: {
+    maxHeight: 300,
+    width: '100%',
+    marginBottom: 16,
+  },
   modalMessage: {
-    fontSize: 16,
-    marginBottom: 24,
-    textAlign: 'center',
+    fontSize: 14,
+    textAlign: 'left',
     color: '#666',
+    lineHeight: 20,
+    paddingVertical: 8,
   },
   modalButton: {
     backgroundColor: '#007AFF',

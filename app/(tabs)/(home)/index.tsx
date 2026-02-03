@@ -37,7 +37,7 @@ const APP_SERVICE_UUID = "00001234-0000-1000-8000-00805f9b34fb";
 
 export default function HomeScreen() {
   const { colors } = useTheme();
-  const { user, authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
 
   const [isScanning, setIsScanning] = useState(false);
@@ -197,7 +197,7 @@ export default function HomeScreen() {
 
     try {
       console.log("Creating proximity session for device:", device.id);
-      const response = await authenticatedPost("/api/proximity/sessions", {
+      const response = await authenticatedPost("/api/proximity/session", {
         recipientDeviceId: device.id,
         message: PREDEFINED_MESSAGE,
       });
@@ -213,12 +213,13 @@ export default function HomeScreen() {
   const handleShareLink = useCallback(async () => {
     console.log("User tapped Share Link");
     try {
-      console.log("Generating secure link for message");
-      const response = await authenticatedPost("/api/messages/link", {
+      console.log("Creating message to generate secure link");
+      const response = await authenticatedPost("/api/messages", {
         message: PREDEFINED_MESSAGE,
       });
 
-      const shareUrl = response.url;
+      const messageId = response.id;
+      const shareUrl = `${response.shareUrl || `https://acceptconnect.app/message/${response.token}`}`;
       console.log("Secure link generated:", shareUrl);
 
       await Share.share({

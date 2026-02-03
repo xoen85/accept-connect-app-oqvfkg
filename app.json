@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Accept Connect",
-    "slug": "Accept Connect",
+    "slug": "accept-connect-app-oqvfkg",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/natively-dark.png",
@@ -27,7 +27,7 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.anonymous.Natively",
+      "package": "com.alessiobisulca.acceptconnect.com",
       "permissions": [
         "BLUETOOTH",
         "BLUETOOTH_ADMIN",

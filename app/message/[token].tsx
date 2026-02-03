@@ -28,7 +28,7 @@ interface Message {
 
 export default function MessageViewScreen() {
   const { colors } = useTheme();
-  const { user, authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const { token } = useLocalSearchParams();
 

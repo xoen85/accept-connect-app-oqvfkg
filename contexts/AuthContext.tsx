@@ -125,12 +125,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInWithEmail = async (email: string, password: string) => {
     try {
       console.log("[Auth] Signing in with email:", email);
-      await authClient.signIn.email({ email, password });
+      const result = await authClient.signIn.email({ email, password });
+      console.log("[Auth] Sign in result:", result);
       console.log("[Auth] Sign in successful, fetching user...");
       await fetchUser();
     } catch (error: any) {
       console.error("[Auth] Email sign in failed:", error);
-      const errorMsg = error?.message || "Sign in failed. Please check your credentials.";
+      console.error("[Auth] Error details:", JSON.stringify(error, null, 2));
+      
+      // Extract meaningful error message
+      let errorMsg = "Sign in failed. Please check your credentials.";
+      if (error?.message) {
+        errorMsg = error.message;
+      } else if (error?.error) {
+        errorMsg = error.error;
+      } else if (error?.body?.message) {
+        errorMsg = error.body.message;
+      }
+      
       throw new Error(errorMsg);
     }
   };
@@ -138,33 +150,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUpWithEmail = async (email: string, password: string, name?: string) => {
     try {
       console.log("[Auth] Signing up with email:", email, "name:", name);
-      await authClient.signUp.email({
+      console.log("[Auth] Calling authClient.signUp.email...");
+      
+      const result = await authClient.signUp.email({
         email,
         password,
         name,
       });
+      
+      console.log("[Auth] Sign up result:", result);
       console.log("[Auth] Sign up successful, fetching user...");
       await fetchUser();
     } catch (error: any) {
       console.error("[Auth] Email sign up failed:", error);
-      const errorMsg = error?.message || "Sign up failed. Email may already be in use.";
+      console.error("[Auth] Error details:", JSON.stringify(error, null, 2));
+      
+      // Extract meaningful error message
+      let errorMsg = "Sign up failed. Email may already be in use.";
+      if (error?.message) {
+        errorMsg = error.message;
+      } else if (error?.error) {
+        errorMsg = error.error;
+      } else if (error?.body?.message) {
+        errorMsg = error.body.message;
+      }
+      
       throw new Error(errorMsg);
     }
   };
 
   const signInWithSocial = async (provider: "google" | "apple" | "github") => {
     try {
+      console.log(`[Auth] Starting ${provider} sign in...`);
+      
       if (Platform.OS === "web") {
+        console.log(`[Auth] Web platform - opening OAuth popup for ${provider}`);
         const token = await openOAuthPopup(provider);
+        console.log(`[Auth] OAuth popup returned token`);
         await setBearerToken(token);
         await fetchUser();
       } else {
         // Native: Use expo-linking to generate a proper deep link
         const callbackURL = Linking.createURL("/");
-        await authClient.signIn.social({
+        console.log(`[Auth] Native platform - callback URL: ${callbackURL}`);
+        console.log(`[Auth] Calling authClient.signIn.social for ${provider}...`);
+        
+        const result = await authClient.signIn.social({
           provider,
           callbackURL,
         });
+        
+        console.log(`[Auth] Social sign in result:`, result);
+        
         // Note: The redirect will reload the app or be handled by deep linking.
         // fetchUser will be called on mount or via event listener if needed.
         // For simple flow, we might need to listen to URL events.
@@ -173,9 +210,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // For now, call fetchUser just in case.
         await fetchUser();
       }
-    } catch (error) {
-      console.error(`${provider} sign in failed:`, error);
-      throw error;
+    } catch (error: any) {
+      console.error(`[Auth] ${provider} sign in failed:`, error);
+      console.error(`[Auth] Error details:`, JSON.stringify(error, null, 2));
+      
+      // Extract meaningful error message
+      let errorMsg = `${provider} sign in failed. Please try again.`;
+      if (error?.message) {
+        errorMsg = error.message;
+      } else if (error?.error) {
+        errorMsg = error.error;
+      } else if (error?.body?.message) {
+        errorMsg = error.body.message;
+      }
+      
+      throw new Error(errorMsg);
     }
   };
 

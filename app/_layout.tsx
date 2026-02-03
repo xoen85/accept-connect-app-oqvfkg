@@ -8,13 +8,13 @@ import { useColorScheme } from "react-native";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 function RootLayoutNav() {
-  const { user, authLoading } = useAuth();
+  const { user, loading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
   const colorScheme = useColorScheme();
 
   const handleAuthRedirect = useCallback(() => {
-    if (authLoading) return;
+    if (loading) return;
 
     const inAuthGroup = segments[0] === "auth" || segments[0] === "auth-callback" || segments[0] === "auth-popup";
 
@@ -25,7 +25,7 @@ function RootLayoutNav() {
       console.log("User authenticated, redirecting to home");
       router.replace("/(tabs)/(home)");
     }
-  }, [user, authLoading, segments, router]);
+  }, [user, loading, segments, router]);
 
   useEffect(() => {
     handleAuthRedirect();

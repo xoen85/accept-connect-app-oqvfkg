@@ -27,7 +27,7 @@ interface NearbyUser {
 
 export default function NearbyScreen() {
   const { colors } = useTheme();
-  const { user, authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
 
   const [nearbyUsers, setNearbyUsers] = useState<NearbyUser[]>([]);
@@ -74,7 +74,7 @@ export default function NearbyScreen() {
       const location = await Location.getCurrentPositionAsync({});
       console.log("Current location:", location.coords);
 
-      await authenticatedPost("/api/users/location", {
+      await authenticatedPost("/api/location/update", {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
       });
@@ -88,9 +88,10 @@ export default function NearbyScreen() {
   const loadNearbyUsers = useCallback(async () => {
     try {
       console.log("Loading nearby users");
-      const response = await authenticatedGet("/api/users/nearby");
-      setNearbyUsers(response);
-      console.log("Loaded nearby users:", response.length);
+      const response = await authenticatedGet<{ users: NearbyUser[] }>("/api/location/nearby");
+      const users = response.users || [];
+      setNearbyUsers(users);
+      console.log("Loaded nearby users:", users.length);
     } catch (error) {
       console.error("Error loading nearby users:", error);
     } finally {
@@ -122,14 +123,14 @@ export default function NearbyScreen() {
 
   const handleSendRequest = useCallback(async (userId: string) => {
     try {
-      console.log("Sending request to user:", userId);
-      await authenticatedPost("/api/messages", {
+      console.log("Sending connection request to user:", userId);
+      await authenticatedPost("/api/connections/request", {
         recipientId: userId,
         message: "Do you accept to have lunch with me?",
       });
-      console.log("Request sent successfully");
+      console.log("Connection request sent successfully");
     } catch (error) {
-      console.error("Error sending request:", error);
+      console.error("Error sending connection request:", error);
     }
   }, []);
 
