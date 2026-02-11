@@ -36,4 +36,3 @@ pnpm-lock.yaml
 package-lock.json
 
 # Chat history contains presigned URLs that get flagged by GitHub
-chat_history.json

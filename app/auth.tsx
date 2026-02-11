@@ -1,3 +1,4 @@
+
 /**
  * Authentication Screen
  * 
@@ -81,6 +82,7 @@ export default function AuthScreen() {
   }>({ title: "", message: "", type: "success" });
 
   const showMessage = (title: string, message: string, type: "success" | "error") => {
+    console.log(`[AuthScreen] Showing ${type} message:`, title, message);
     setModalConfig({ title, message, type });
     setShowModal(true);
   };
@@ -89,6 +91,7 @@ export default function AuthScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.loadingText}>Loading...</Text>
       </View>
     );
   }
@@ -136,7 +139,6 @@ export default function AuthScreen() {
       }
     } catch (error: any) {
       console.error(`[AuthScreen] ${mode} failed:`, error);
-      console.error(`[AuthScreen] Error object:`, JSON.stringify(error, null, 2));
       
       // Extract the most meaningful error message
       let errorMsg = "Authentication failed. Please try again.";
@@ -145,8 +147,6 @@ export default function AuthScreen() {
         errorMsg = error.message;
       } else if (error?.error) {
         errorMsg = error.error;
-      } else if (error?.body?.message) {
-        errorMsg = error.body.message;
       } else if (typeof error === 'string') {
         errorMsg = error;
       }
@@ -354,6 +354,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#fff",
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: "#666",
   },
   scrollContent: {
     flexGrow: 1,
