@@ -5,205 +5,115 @@ import * as authSchema from '../db/auth-schema.js';
 
 /**
  * Custom Authentication Routes
- * Provides email/password sign-up, sign-in, and enhanced error handling
- * Also supports username login in addition to email login
+ *
+ * NOTE: /api/auth/* paths are reserved by Better Auth. These routes use /api/user/* instead.
+ *
+ * Better Auth provides these endpoints automatically:
+ * - POST /api/auth/sign-up/email - Email/password sign-up
+ * - POST /api/auth/sign-in/email - Email/password sign-in
+ * - POST /api/auth/sign-out - Sign out
+ * - POST /api/auth/change-password - Change password
+ * - POST /api/auth/reset-password - Reset password
+ * - GET /api/auth/get-session - Get current session
+ *
+ * This file provides additional features:
+ * - POST /api/user/sign-in-with-username - Sign in using username instead of email
  */
 export function registerAuthRoutes(app: App) {
   /**
-   * POST /api/auth/sign-up - Sign up with email and password
-   * Body: { email: string, password: string, name?: string }
+   * POST /api/user/sign-in-with-username - Sign in using username (name field)
+   * Body: { username: string, password: string }
+   *
+   * Better Auth only supports email-based sign-in by default.
+   * This endpoint provides username-based login as an alternative.
    */
   app.fastify.post(
-    '/api/auth/sign-up',
+    '/api/user/sign-in-with-username',
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const { email, password, name } = request.body as {
-        email?: string;
+      const { username, password } = request.body as {
+        username?: string;
         password?: string;
-        name?: string;
       };
 
       app.logger.info(
         {
-          email,
+          username,
           hasPassword: !!password,
-          hasName: !!name,
-          method: 'email/password',
+          method: 'username/password',
         },
-        'Sign-up attempt'
+        'Username sign-in attempt'
       );
 
       // Validation
-      if (!email || !password) {
+      if (!username || !password) {
         app.logger.warn(
-          { email, hasPassword: !!password },
-          'Sign-up validation failed - missing email or password'
+          { hasUsername: !!username, hasPassword: !!password },
+          'Sign-in validation failed - missing username or password'
         );
         return reply.status(400).send({
-          error: 'Email and password are required',
+          error: 'Username and password are required',
           code: 'VALIDATION_ERROR',
         });
       }
 
-      if (!email.includes('@')) {
-        app.logger.warn({ email }, 'Sign-up validation failed - invalid email');
-        return reply.status(400).send({
-          error: 'Invalid email format',
-          code: 'INVALID_EMAIL',
-        });
-      }
-
-      if (password.length < 8) {
-        app.logger.warn(
-          { email, passwordLength: password.length },
-          'Sign-up validation failed - password too short'
-        );
-        return reply.status(400).send({
-          error: 'Password must be at least 8 characters',
-          code: 'PASSWORD_TOO_SHORT',
-        });
-      }
-
-      if (password.length > 128) {
-        return reply.status(400).send({
-          error: 'Password must not exceed 128 characters',
-          code: 'PASSWORD_TOO_LONG',
-        });
-      }
-
       try {
-        // Check if email already exists
-        const existingUser = await app.db.query.user.findFirst({
-          where: eq(authSchema.user.email, email),
+        // Look up user by username (name field)
+        const user = await app.db.query.user.findFirst({
+          where: eq(authSchema.user.name, username),
         });
 
-        if (existingUser) {
+        if (!user) {
           app.logger.warn(
-            { email },
-            'Sign-up failed - email already exists'
+            { username },
+            'Sign-in failed - user not found by username'
           );
-          return reply.status(409).send({
-            error: 'Email already exists',
-            code: 'EMAIL_EXISTS',
+          return reply.status(401).send({
+            error: 'Invalid username or password',
+            code: 'INVALID_CREDENTIALS',
           });
         }
 
-        // TODO: Use Better Auth's built-in sign-up endpoint
-        // This is a placeholder for the actual implementation
-        // In production, use the authenticated endpoint provided by Better Auth
-
-        app.logger.info(
-          { email, hasName: !!name },
-          'Sign-up in progress (delegated to Better Auth)'
-        );
-
-        return reply.status(501).send({
-          error: 'Sign-up should be handled through Better Auth endpoints',
-          hint: 'Use POST /api/auth/sign-up/email with email and password',
+        // Find the account with password hash for this user
+        const account = await app.db.query.account.findFirst({
+          where: eq(authSchema.account.userId, user.id),
         });
-      } catch (error) {
-        app.logger.error(
-          { err: error, email, method: 'email/password' },
-          'Sign-up failed with server error'
-        );
-        return reply.status(500).send({
-          error: 'Failed to create account',
-          code: 'SERVER_ERROR',
-        });
-      }
-    }
-  );
 
-  /**
-   * POST /api/auth/sign-in - Sign in with email/username and password
-   * Body: { email_or_username: string, password: string }
-   * Supports both email and username for login
-   */
-  app.fastify.post(
-    '/api/auth/sign-in',
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      const { email_or_username, password } = request.body as {
-        email_or_username?: string;
-        password?: string;
-      };
-
-      // Log without password for security
-      app.logger.info(
-        {
-          identifier: email_or_username,
-          identifierType: email_or_username?.includes('@') ? 'email' : 'username',
-          method: 'email/password',
-        },
-        'Sign-in attempt'
-      );
-
-      // Validation
-      if (!email_or_username || !password) {
-        app.logger.warn(
-          { hasIdentifier: !!email_or_username, hasPassword: !!password },
-          'Sign-in validation failed - missing credentials'
-        );
-        return reply.status(400).send({
-          error: 'Email/username and password are required',
-          code: 'VALIDATION_ERROR',
-        });
-      }
-
-      try {
-        // Determine if input is email or username
-        const isEmail = email_or_username.includes('@');
-        let user;
-
-        if (isEmail) {
-          // Look up by email
-          user = await app.db.query.user.findFirst({
-            where: eq(authSchema.user.email, email_or_username),
+        if (!account || !account.password) {
+          app.logger.warn(
+            { userId: user.id, username },
+            'Sign-in failed - no password auth method found'
+          );
+          return reply.status(401).send({
+            error: 'Invalid username or password',
+            code: 'INVALID_CREDENTIALS',
           });
-
-          if (!user) {
-            app.logger.warn(
-              { email: email_or_username },
-              'Sign-in failed - user not found by email'
-            );
-            return reply.status(401).send({
-              error: 'Invalid credentials',
-              code: 'INVALID_CREDENTIALS',
-            });
-          }
-        } else {
-          // Look up by username (name field)
-          user = await app.db.query.user.findFirst({
-            where: eq(authSchema.user.name, email_or_username),
-          });
-
-          if (!user) {
-            app.logger.warn(
-              { username: email_or_username },
-              'Sign-in failed - user not found by username'
-            );
-            return reply.status(401).send({
-              error: 'Invalid credentials',
-              code: 'INVALID_CREDENTIALS',
-            });
-          }
         }
 
-        // TODO: Verify password against stored hash using Better Auth
-        // This is a placeholder - actual password verification should be done by Better Auth
-        // The password verification happens automatically through Better Auth's sign-in endpoint
-
         app.logger.info(
-          { userId: user.id, identifier: email_or_username, identifierType: isEmail ? 'email' : 'username' },
-          'Sign-in successful (delegated to Better Auth)'
+          { userId: user.id, username },
+          'Username found for sign-in - password verification delegated to Better Auth'
         );
 
-        return reply.status(501).send({
-          error: 'Sign-in should be handled through Better Auth endpoints',
-          hint: 'Use POST /api/auth/sign-in/email with email and password',
-        });
+        // Note: Password verification should be done through Better Auth
+        // Client should use the email with /api/auth/sign-in/email endpoint
+        // This endpoint locates the user by username, but the actual sign-in
+        // should be completed with email/password through Better Auth
+        return {
+          success: true,
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            image: user.image,
+            emailVerified: user.emailVerified,
+          },
+          message: 'Username found. Complete sign-in with email using /api/auth/sign-in/email endpoint',
+          hint: 'Use email: ' + user.email,
+        };
       } catch (error) {
         app.logger.error(
-          { err: error, identifier: email_or_username, method: 'email/password' },
-          'Sign-in failed with server error'
+          { err: error, username, method: 'username/password' },
+          'Username sign-in failed with server error'
         );
         return reply.status(500).send({
           error: 'Failed to sign in',
@@ -214,141 +124,19 @@ export function registerAuthRoutes(app: App) {
   );
 
   /**
-   * POST /api/auth/oauth/google - Handle Google OAuth with error details
-   * This endpoint logs detailed OAuth failures for debugging
-   */
-  app.fastify.post(
-    '/api/auth/oauth/google',
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      const { code, idToken, accessToken, platform } = request.body as {
-        code?: string;
-        idToken?: string;
-        accessToken?: string;
-        platform?: 'web' | 'android' | 'ios';
-      };
-
-      app.logger.info(
-        {
-          platform,
-          hasCode: !!code,
-          hasIdToken: !!idToken,
-          hasAccessToken: !!accessToken,
-        },
-        'Google OAuth sign-in attempt'
-      );
-
-      // Validation
-      if (!code && !idToken && !accessToken) {
-        app.logger.warn(
-          { platform },
-          'Google OAuth validation failed - no tokens provided'
-        );
-        return reply.status(400).send({
-          error: 'OAuth token is required',
-          code: 'MISSING_TOKEN',
-        });
-      }
-
-      try {
-        const clientId = process.env.GOOGLE_CLIENT_ID;
-        const androidPackage = 'com.alessiobisulca.acceptconnect.com';
-
-        if (!clientId) {
-          app.logger.error({}, 'Google OAuth not configured - missing client ID');
-          return reply.status(500).send({
-            error: 'Google OAuth is not configured',
-            code: 'OAUTH_NOT_CONFIGURED',
-          });
-        }
-
-        // Log platform-specific validation
-        if (platform === 'android') {
-          app.logger.info(
-            {
-              platform,
-              expectedPackage: androidPackage,
-              hasFingerprints: !!process.env.ANDROID_SHA1_FINGERPRINTS,
-            },
-            'Validating Android OAuth credentials'
-          );
-
-          if (!process.env.ANDROID_SHA1_FINGERPRINTS) {
-            app.logger.warn(
-              { platform },
-              'Android OAuth - no SHA-1 fingerprints configured'
-            );
-          }
-        }
-
-        // TODO: Verify token with Google and check platform-specific requirements
-        // For Android: verify SHA-1 fingerprint and package name
-        // For Web: verify client ID and redirect URI
-
-        app.logger.info(
-          {
-            platform,
-            clientId: clientId.substring(0, 20) + '...',
-          },
-          'Google OAuth (delegated to Better Auth)'
-        );
-
-        return reply.status(501).send({
-          error: 'Google OAuth should be handled through Better Auth endpoints',
-          hint: 'Use POST /api/auth/sign-in/social with provider=google and code',
-        });
-      } catch (error) {
-        app.logger.error(
-          {
-            err: error,
-            platform,
-            errorMessage: error instanceof Error ? error.message : String(error),
-          },
-          'Google OAuth failed'
-        );
-
-        // Provide specific error messages
-        const errorMessage = error instanceof Error ? error.message : '';
-        let specificError = 'Google authentication failed';
-
-        if (errorMessage.includes('Invalid OAuth client')) {
-          specificError = 'Invalid OAuth client ID';
-        } else if (errorMessage.includes('SHA-1') || errorMessage.includes('fingerprint')) {
-          specificError = 'SHA-1 fingerprint mismatch - check your app signing configuration';
-        } else if (errorMessage.includes('redirect')) {
-          specificError = 'Redirect URI mismatch - check callback URL configuration';
-        } else if (errorMessage.includes('package')) {
-          specificError = 'Package name mismatch - check Android package configuration';
-        }
-
-        return reply.status(401).send({
-          error: specificError,
-          code: 'OAUTH_FAILED',
-          platform,
-          debugInfo:
-            process.env.NODE_ENV === 'development'
-              ? {
-                  originalError: errorMessage,
-                  expectedPackage: 'com.alessiobisulca.acceptconnect.com',
-                  configuredFingerpints: process.env.ANDROID_SHA1_FINGERPRINTS ? 'Yes' : 'No',
-                }
-              : undefined,
-        });
-      }
-    }
-  );
-
-  /**
-   * GET /api/auth/me - Get current authenticated user
-   * Returns user info and session details
+   * GET /api/user/me - Get current authenticated user
+   * Returns user info and authentication status
+   *
+   * This is a convenience endpoint that wraps Better Auth's get-session
    */
   app.fastify.get(
-    '/api/auth/me',
+    '/api/user/me',
     async (request: FastifyRequest, reply: FastifyReply) => {
       const requireAuth = app.requireAuth();
       const session = await requireAuth(request, reply);
       if (!session) return;
 
-      app.logger.info({ userId: session.user.id }, 'Fetching current user');
+      app.logger.info({ userId: session.user.id }, 'Fetching current user profile');
 
       try {
         return {
@@ -358,105 +146,42 @@ export function registerAuthRoutes(app: App) {
             name: session.user.name,
             image: session.user.image,
             emailVerified: session.user.emailVerified,
+            createdAt: session.user.createdAt,
+            updatedAt: session.user.updatedAt,
           },
           authenticated: true,
         };
       } catch (error) {
-        app.logger.error({ err: error }, 'Failed to fetch current user');
-        throw error;
-      }
-    }
-  );
-
-  /**
-   * POST /api/auth/sign-out - Sign out current user
-   */
-  app.fastify.post(
-    '/api/auth/sign-out',
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      const requireAuth = app.requireAuth();
-      const session = await requireAuth(request, reply);
-      if (!session) return;
-
-      const userId = session.user.id;
-
-      app.logger.info({ userId }, 'User signing out');
-
-      try {
-        // TODO: Invalidate session through Better Auth
-        // This should be delegated to Better Auth's sign-out endpoint
-
-        return {
-          success: true,
-          message: 'Signed out successfully',
-        };
-      } catch (error) {
-        app.logger.error({ err: error, userId }, 'Sign-out failed');
-        throw error;
-      }
-    }
-  );
-
-  /**
-   * POST /api/auth/verify-email - Verify user's email address
-   * Requires authentication
-   */
-  app.fastify.post(
-    '/api/auth/verify-email',
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      const requireAuth = app.requireAuth();
-      const session = await requireAuth(request, reply);
-      if (!session) return;
-
-      const userId = session.user.id;
-      const { code } = request.body as { code?: string };
-
-      app.logger.info({ userId, hasCode: !!code }, 'Email verification attempt');
-
-      if (!code) {
-        return reply.status(400).send({
-          error: 'Verification code is required',
-          code: 'MISSING_CODE',
-        });
-      }
-
-      try {
-        // TODO: Verify code through Better Auth
-        // This should validate the verification code sent to the user's email
-
-        return {
-          success: true,
-          message: 'Email verified successfully',
-        };
-      } catch (error) {
         app.logger.error(
-          { err: error, userId, hasCode: !!code },
-          'Email verification failed'
+          { err: error, userId: session.user.id },
+          'Failed to fetch current user profile'
         );
-        return reply.status(400).send({
-          error: 'Invalid or expired verification code',
-          code: 'INVALID_CODE',
-        });
+        throw error;
       }
     }
   );
 
   /**
-   * GET /api/auth/status - Get authentication status
+   * GET /api/user/auth-status - Get authentication status
    * Returns whether user is authenticated and basic info
+   *
+   * Non-protected endpoint that returns authentication status
    */
   app.fastify.get(
-    '/api/auth/status',
+    '/api/user/auth-status',
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const requireAuth = app.requireAuth();
         const session = await requireAuth(request, reply);
 
         if (!session) {
+          app.logger.debug({}, 'User not authenticated');
           return {
             authenticated: false,
           };
         }
+
+        app.logger.debug({ userId: session.user.id }, 'User is authenticated');
 
         return {
           authenticated: true,
@@ -464,12 +189,102 @@ export function registerAuthRoutes(app: App) {
             id: session.user.id,
             email: session.user.email,
             name: session.user.name,
+            image: session.user.image,
+            emailVerified: session.user.emailVerified,
           },
         };
       } catch {
         return {
           authenticated: false,
         };
+      }
+    }
+  );
+
+  /**
+   * POST /api/user/update-profile - Update user profile
+   * Body: { name?: string }
+   *
+   * This is a convenience endpoint for updating user name/username
+   */
+  app.fastify.post(
+    '/api/user/update-profile',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const requireAuth = app.requireAuth();
+      const session = await requireAuth(request, reply);
+      if (!session) return;
+
+      const userId = session.user.id;
+      const { name } = request.body as { name?: string };
+
+      app.logger.info(
+        { userId, hasName: !!name },
+        'Updating user profile'
+      );
+
+      if (name && name.length > 256) {
+        return reply.status(400).send({
+          error: 'Name must not exceed 256 characters',
+          code: 'NAME_TOO_LONG',
+        });
+      }
+
+      try {
+        // Check if new name is already taken by another user (if changing)
+        if (name && name !== session.user.name) {
+          const existingUser = await app.db.query.user.findFirst({
+            where: eq(authSchema.user.name, name),
+          });
+
+          if (existingUser && existingUser.id !== userId) {
+            app.logger.warn(
+              { userId, newName: name },
+              'Profile update failed - username already taken'
+            );
+            return reply.status(409).send({
+              error: 'Username is already taken',
+              code: 'USERNAME_TAKEN',
+            });
+          }
+        }
+
+        const updates: { name?: string; updatedAt: Date } = {
+          updatedAt: new Date(),
+        };
+        if (name) {
+          updates.name = name;
+        }
+
+        const [updated] = await app.db
+          .update(authSchema.user)
+          .set(updates)
+          .where(eq(authSchema.user.id, userId))
+          .returning();
+
+        app.logger.info(
+          { userId, newName: name },
+          'User profile updated'
+        );
+
+        return {
+          success: true,
+          user: {
+            id: updated.id,
+            email: updated.email,
+            name: updated.name,
+            image: updated.image,
+            emailVerified: updated.emailVerified,
+          },
+        };
+      } catch (error) {
+        app.logger.error(
+          { err: error, userId, newName: name },
+          'Failed to update profile'
+        );
+        return reply.status(500).send({
+          error: 'Failed to update profile',
+          code: 'SERVER_ERROR',
+        });
       }
     }
   );
