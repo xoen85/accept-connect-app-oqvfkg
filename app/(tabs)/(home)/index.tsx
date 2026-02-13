@@ -49,24 +49,6 @@ export default function HomeScreen() {
   const [modalMessage, setModalMessage] = useState("");
   const [modalType, setModalType] = useState<"success" | "error">("success");
 
-  // Redirect to auth if not logged in
-  useEffect(() => {
-    if (!authLoading && !user) {
-      console.log("User not authenticated, redirecting to auth screen");
-      router.replace("/auth");
-    }
-  }, [user, authLoading, router]);
-
-  // Initialize BLE Manager
-  useEffect(() => {
-    const manager = new BleManager();
-    setBleManager(manager);
-
-    return () => {
-      manager.destroy();
-    };
-  }, []);
-
   const showConfirmMessage = useCallback((title: string, message: string, type: "success" | "error") => {
     setModalTitle(title);
     setModalMessage(message);
@@ -100,33 +82,13 @@ export default function HomeScreen() {
     return true;
   }, [showConfirmMessage]);
 
-  const handleAskButtonPress = useCallback(async () => {
-    console.log("User tapped Ask button");
-    // Show options: Scan for nearby devices or Share link
-    RNAlert.alert(
-      "Send Request",
-      "How would you like to send your request?",
-      [
-        {
-          text: "Nearby Devices",
-          onPress: async () => {
-            const hasPermissions = await requestBluetoothPermissions();
-            if (hasPermissions) {
-              startScanning();
-            }
-          },
-        },
-        {
-          text: "Share Link",
-          onPress: () => handleShareLink(),
-        },
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-      ]
-    );
-  }, [requestBluetoothPermissions]);
+  const stopScanning = useCallback(() => {
+    if (bleManager) {
+      console.log("User stopped BLE scan");
+      bleManager.stopDeviceScan();
+      setIsScanning(false);
+    }
+  }, [bleManager]);
 
   const startScanning = useCallback(async () => {
     if (!bleManager) {
@@ -182,34 +144,6 @@ export default function HomeScreen() {
     }
   }, [bleManager, showConfirmMessage]);
 
-  const stopScanning = useCallback(() => {
-    if (bleManager) {
-      console.log("User stopped BLE scan");
-      bleManager.stopDeviceScan();
-      setIsScanning(false);
-    }
-  }, [bleManager]);
-
-  const handleSelectNearbyDevice = useCallback(async (device: NearbyDevice) => {
-    console.log("User selected device:", device.name);
-    setShowDeviceModal(false);
-    stopScanning();
-
-    try {
-      console.log("Creating proximity session for device:", device.id);
-      const response = await authenticatedPost("/api/proximity/session", {
-        recipientDeviceId: device.id,
-        message: PREDEFINED_MESSAGE,
-      });
-
-      console.log("Proximity session created:", response);
-      showConfirmMessage("Success", "Request sent to nearby device!", "success");
-    } catch (error) {
-      console.error("Error creating proximity session:", error);
-      showConfirmMessage("Error", "Failed to send request to device", "error");
-    }
-  }, [stopScanning, showConfirmMessage]);
-
   const handleShareLink = useCallback(async () => {
     console.log("User tapped Share Link");
     try {
@@ -234,8 +168,74 @@ export default function HomeScreen() {
     }
   }, [showConfirmMessage]);
 
+  const handleAskButtonPress = useCallback(async () => {
+    console.log("User tapped Ask button");
+    // Show options: Scan for nearby devices or Share link
+    RNAlert.alert(
+      "Send Request",
+      "How would you like to send your request?",
+      [
+        {
+          text: "Nearby Devices",
+          onPress: async () => {
+            const hasPermissions = await requestBluetoothPermissions();
+            if (hasPermissions) {
+              startScanning();
+            }
+          },
+        },
+        {
+          text: "Share Link",
+          onPress: () => handleShareLink(),
+        },
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+      ]
+    );
+  }, [requestBluetoothPermissions, startScanning, handleShareLink]);
+
+  const handleSelectNearbyDevice = useCallback(async (device: NearbyDevice) => {
+    console.log("User selected device:", device.name);
+    setShowDeviceModal(false);
+    stopScanning();
+
+    try {
+      console.log("Creating proximity session for device:", device.id);
+      const response = await authenticatedPost("/api/proximity/session", {
+        recipientDeviceId: device.id,
+        message: PREDEFINED_MESSAGE,
+      });
+
+      console.log("Proximity session created:", response);
+      showConfirmMessage("Success", "Request sent to nearby device!", "success");
+    } catch (error) {
+      console.error("Error creating proximity session:", error);
+      showConfirmMessage("Error", "Failed to send request to device", "error");
+    }
+  }, [stopScanning, showConfirmMessage]);
+
   const handleCloseModal = useCallback(() => {
     setModalVisible(false);
+  }, []);
+
+  // Redirect to auth if not logged in
+  useEffect(() => {
+    if (!authLoading && !user) {
+      console.log("User not authenticated, redirecting to auth screen");
+      router.replace("/auth");
+    }
+  }, [user, authLoading, router]);
+
+  // Initialize BLE Manager
+  useEffect(() => {
+    const manager = new BleManager();
+    setBleManager(manager);
+
+    return () => {
+      manager.destroy();
+    };
   }, []);
 
   if (authLoading) {

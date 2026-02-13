@@ -35,14 +35,6 @@ export default function NearbyScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [locationPermission, setLocationPermission] = useState(false);
 
-  // Redirect to auth if not logged in
-  useEffect(() => {
-    if (!authLoading && !user) {
-      console.log("User not authenticated, redirecting to auth screen");
-      router.replace("/auth");
-    }
-  }, [user, authLoading, router]);
-
   const requestLocationPermission = useCallback(async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -61,11 +53,6 @@ export default function NearbyScreen() {
       return false;
     }
   }, []);
-
-  // Request location permission on mount
-  useEffect(() => {
-    requestLocationPermission();
-  }, [requestLocationPermission]);
 
   const updateLocation = useCallback(async () => {
     if (!locationPermission) return;
@@ -100,21 +87,6 @@ export default function NearbyScreen() {
     }
   }, []);
 
-  // Update location and load nearby users periodically
-  useEffect(() => {
-    if (locationPermission) {
-      updateLocation();
-      loadNearbyUsers();
-
-      const interval = setInterval(() => {
-        updateLocation();
-        loadNearbyUsers();
-      }, 30000); // Update every 30 seconds
-
-      return () => clearInterval(interval);
-    }
-  }, [locationPermission, updateLocation, loadNearbyUsers]);
-
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     await updateLocation();
@@ -143,6 +115,34 @@ export default function NearbyScreen() {
     const distanceText = `${km.toFixed(1)}km`;
     return distanceText;
   }, []);
+
+  // Request location permission on mount
+  useEffect(() => {
+    requestLocationPermission();
+  }, [requestLocationPermission]);
+
+  // Update location and load nearby users periodically
+  useEffect(() => {
+    if (locationPermission) {
+      updateLocation();
+      loadNearbyUsers();
+
+      const interval = setInterval(() => {
+        updateLocation();
+        loadNearbyUsers();
+      }, 30000); // Update every 30 seconds
+
+      return () => clearInterval(interval);
+    }
+  }, [locationPermission, updateLocation, loadNearbyUsers]);
+
+  // Redirect to auth if not logged in - moved after all hooks
+  useEffect(() => {
+    if (!authLoading && !user) {
+      console.log("User not authenticated, redirecting to auth screen");
+      router.replace("/auth");
+    }
+  }, [user, authLoading, router]);
 
   if (authLoading || loading) {
     return (

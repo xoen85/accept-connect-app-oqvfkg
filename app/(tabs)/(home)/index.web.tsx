@@ -34,25 +34,11 @@ export default function HomeScreen() {
   const [modalMessage, setModalMessage] = useState("");
   const [modalType, setModalType] = useState<"success" | "error">("success");
 
-  // Redirect to auth if not logged in
-  useEffect(() => {
-    if (!authLoading && !user) {
-      console.log("User not authenticated, redirecting to auth screen");
-      router.replace("/auth");
-    }
-  }, [user, authLoading, router]);
-
   const showConfirmMessage = useCallback((title: string, message: string, type: "success" | "error") => {
     setModalTitle(title);
     setModalMessage(message);
     setModalType(type);
     setModalVisible(true);
-  }, []);
-
-  const handleAskButtonPress = useCallback(() => {
-    console.log("User tapped Ask button (Web)");
-    // On web, only share link is available (no BLE)
-    handleShareLink();
   }, []);
 
   const handleShareLink = useCallback(async () => {
@@ -88,9 +74,23 @@ export default function HomeScreen() {
     }
   }, [showConfirmMessage]);
 
+  const handleAskButtonPress = useCallback(() => {
+    console.log("User tapped Ask button (Web)");
+    // On web, only share link is available (no BLE)
+    handleShareLink();
+  }, [handleShareLink]);
+
   const handleCloseModal = useCallback(() => {
     setModalVisible(false);
   }, []);
+
+  // Redirect to auth if not logged in
+  useEffect(() => {
+    if (!authLoading && !user) {
+      console.log("User not authenticated, redirecting to auth screen");
+      router.replace("/auth");
+    }
+  }, [user, authLoading, router]);
 
   if (authLoading) {
     return (

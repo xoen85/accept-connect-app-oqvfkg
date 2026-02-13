@@ -1,8 +1,7 @@
-
 {
   "expo": {
     "name": "Accept Connect",
-    "slug": "accept-connect-app",
+    "slug": "Accept Connect",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/natively-dark.png",
@@ -62,7 +61,7 @@
         }
       ]
     ],
-    "scheme": "acceptconnect",
+    "scheme": "Accept Connect",
     "experiments": {
       "typedRoutes": true
     },

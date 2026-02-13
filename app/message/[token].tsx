@@ -40,6 +40,13 @@ export default function MessageViewScreen() {
   const [modalMessage, setModalMessage] = useState("");
   const [modalType, setModalType] = useState<"success" | "error">("success");
 
+  const showModalMessage = useCallback((title: string, message: string, type: "success" | "error") => {
+    setModalTitle(title);
+    setModalMessage(message);
+    setModalType(type);
+    setModalVisible(true);
+  }, []);
+
   const loadMessage = useCallback(async () => {
     if (!token) return;
 
@@ -54,23 +61,7 @@ export default function MessageViewScreen() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
-
-  useEffect(() => {
-    if (!authLoading && !user) {
-      console.log("User not authenticated, redirecting to auth screen");
-      router.replace("/auth");
-    } else if (user) {
-      loadMessage();
-    }
-  }, [user, authLoading, loadMessage, router]);
-
-  const showModalMessage = useCallback((title: string, message: string, type: "success" | "error") => {
-    setModalTitle(title);
-    setModalMessage(message);
-    setModalType(type);
-    setModalVisible(true);
-  }, []);
+  }, [token, showModalMessage]);
 
   const handleRespond = useCallback(async (action: "accept" | "reject") => {
     if (!message) return;
@@ -105,6 +96,15 @@ export default function MessageViewScreen() {
   const handleCloseModal = useCallback(() => {
     setModalVisible(false);
   }, []);
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      console.log("User not authenticated, redirecting to auth screen");
+      router.replace("/auth");
+    } else if (user) {
+      loadMessage();
+    }
+  }, [user, authLoading, loadMessage, router]);
 
   if (authLoading || loading) {
     return (
