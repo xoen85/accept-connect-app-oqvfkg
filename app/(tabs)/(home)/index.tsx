@@ -48,6 +48,7 @@ export default function HomeScreen() {
   const [modalTitle, setModalTitle] = useState("");
   const [modalMessage, setModalMessage] = useState("");
   const [modalType, setModalType] = useState<"success" | "error">("success");
+  const [shouldRedirect, setShouldRedirect] = useState(false);
 
   const showConfirmMessage = useCallback((title: string, message: string, type: "success" | "error") => {
     setModalTitle(title);
@@ -220,13 +221,21 @@ export default function HomeScreen() {
     setModalVisible(false);
   }, []);
 
-  // Redirect to auth if not logged in
+  // Check if user needs to be redirected to auth
   useEffect(() => {
     if (!authLoading && !user) {
-      console.log("User not authenticated, redirecting to auth screen");
+      console.log("User not authenticated, will redirect to auth screen");
+      setShouldRedirect(true);
+    }
+  }, [user, authLoading]);
+
+  // Perform redirect in a separate effect to avoid navigation during render
+  useEffect(() => {
+    if (shouldRedirect) {
+      console.log("Redirecting to auth screen");
       router.replace("/auth");
     }
-  }, [user, authLoading, router]);
+  }, [shouldRedirect, router]);
 
   // Initialize BLE Manager
   useEffect(() => {

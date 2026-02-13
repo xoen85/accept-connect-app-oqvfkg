@@ -26,13 +26,14 @@ interface NearbyUser {
 
 export default function NearbyScreen() {
   const { colors } = useTheme();
-  const { user, authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
 
   const [nearbyUsers, setNearbyUsers] = useState<NearbyUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [locationPermission, setLocationPermission] = useState(false);
+  const [shouldRedirect, setShouldRedirect] = useState(false);
 
   const requestLocationPermission = useCallback(async () => {
     try {
@@ -134,13 +135,21 @@ export default function NearbyScreen() {
     }
   }, [locationPermission, updateLocation, loadNearbyUsers]);
 
-  // Redirect to auth if not logged in - moved after all hooks
+  // Check if user needs to be redirected to auth
   useEffect(() => {
     if (!authLoading && !user) {
-      console.log("User not authenticated, redirecting to auth screen");
+      console.log("User not authenticated, will redirect to auth screen");
+      setShouldRedirect(true);
+    }
+  }, [user, authLoading]);
+
+  // Perform redirect in a separate effect to avoid navigation during render
+  useEffect(() => {
+    if (shouldRedirect) {
+      console.log("Redirecting to auth screen");
       router.replace("/auth");
     }
-  }, [user, authLoading, router]);
+  }, [shouldRedirect, router]);
 
   if (authLoading || loading) {
     return (

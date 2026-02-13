@@ -9,9 +9,28 @@
  * - GitHub OAuth
  * 
  * Backend Integration:
- * ✅ POST /api/auth/signin - Email/password sign in
- * ✅ POST /api/auth/signup - Email/password sign up
+ * ✅ POST /api/auth/sign-in/email - Email/password sign in (Better Auth)
+ * ✅ POST /api/auth/sign-up/email - Email/password sign up (Better Auth)
+ * ✅ GET /api/auth/get-session - Get current session (Better Auth)
  * ✅ OAuth flows handled by Better Auth
+ * 
+ * Authentication Flow:
+ * ====================
+ * 1. Email/Password Authentication:
+ *    - Users can sign up with either email or username
+ *    - For username-based signup, a synthetic email is created: username@acceptconnect.local
+ *    - The username is stored in the 'name' field of the user record
+ *    - For sign in, the app tries both the direct input and synthetic email format
+ * 
+ * 2. OAuth Authentication:
+ *    - Web: Opens popup window for OAuth flow
+ *    - Native: Uses deep linking with expo-linking
+ *    - Session tokens are stored in SecureStore (native) or localStorage (web)
+ * 
+ * 3. Session Management:
+ *    - Sessions persist across app restarts
+ *    - Bearer tokens are automatically included in API requests
+ *    - AuthContext manages user state and provides auth methods
  * 
  * IMPORTANT: Google OAuth Configuration for Android APK
  * ========================================================
@@ -35,13 +54,24 @@
  * 4. Test the authentication and check logs for detailed error messages
  * 
  * Test Credentials:
+ * =================
  * To test the app, create a new account using:
- * - Username: testuser1 (or any username)
- * - Password: Test123! (or any password with 8+ characters)
+ * 
+ * Option 1 - Username-based:
+ * - Username: testuser1
+ * - Password: testpass123
+ * 
+ * Option 2 - Email-based:
+ * - Email: test@example.com
+ * - Password: testpass123
  * 
  * Then create a second account to test GPS connections:
  * - Username: testuser2
- * - Password: Test123!
+ * - Password: testpass123
+ * 
+ * Password Requirements:
+ * - Minimum 8 characters
+ * - No special character requirements (for testing convenience)
  */
 
 import React, { useState } from "react";
@@ -118,14 +148,26 @@ export default function AuthScreen() {
     console.log(`[AuthScreen] Starting ${mode} process...`);
     
     try {
-      if (mode === "signin") {
-        console.log(`[AuthScreen] Calling signInWithEmail...`);
-        await signInWithEmail(email, password);
-        console.log(`[AuthScreen] Sign in successful, navigating to home...`);
-        router.replace("/");
-      } else {
+      // For sign up, we need a valid email format
+      // If user entered a username, we'll create a synthetic email
+      let emailToUse = email;
+      let nameToUse = name || email;
+      
+      if (mode === "signup") {
+        if (useUsername) {
+          // User entered a username, create a synthetic email
+          // The username will be stored in the 'name' field
+          emailToUse = `${email}@acceptconnect.local`;
+          nameToUse = email; // Store username as name
+          console.log(`[AuthScreen] Sign up with username: ${email}, synthetic email: ${emailToUse}`);
+        } else {
+          // User entered an email
+          nameToUse = name || email.split('@')[0]; // Use name or email prefix
+          console.log(`[AuthScreen] Sign up with email: ${email}, name: ${nameToUse}`);
+        }
+        
         console.log(`[AuthScreen] Calling signUpWithEmail...`);
-        await signUpWithEmail(email, password, name || email);
+        await signUpWithEmail(emailToUse, password, nameToUse);
         console.log(`[AuthScreen] Sign up successful!`);
         showMessage(
           "Success",
@@ -136,6 +178,27 @@ export default function AuthScreen() {
           console.log(`[AuthScreen] Navigating to home...`);
           router.replace("/");
         }, 1500);
+      } else {
+        // For sign in, try with the input as-is first
+        // If it's a username, try the synthetic email format
+        console.log(`[AuthScreen] Calling signInWithEmail...`);
+        
+        try {
+          await signInWithEmail(email, password);
+          console.log(`[AuthScreen] Sign in successful, navigating to home...`);
+          router.replace("/");
+        } catch (firstError: any) {
+          // If sign in failed and user might have entered a username, try synthetic email
+          if (useUsername && !email.includes('@')) {
+            console.log(`[AuthScreen] First attempt failed, trying with synthetic email format...`);
+            const syntheticEmail = `${email}@acceptconnect.local`;
+            await signInWithEmail(syntheticEmail, password);
+            console.log(`[AuthScreen] Sign in successful with synthetic email, navigating to home...`);
+            router.replace("/");
+          } else {
+            throw firstError;
+          }
+        }
       }
     } catch (error: any) {
       console.error(`[AuthScreen] ${mode} failed:`, error);
@@ -149,6 +212,15 @@ export default function AuthScreen() {
         errorMsg = error.error;
       } else if (typeof error === 'string') {
         errorMsg = error;
+      }
+      
+      // Provide helpful hints for common errors
+      if (mode === "signin" && errorMsg.includes("Invalid")) {
+        if (useUsername) {
+          errorMsg = "Invalid username or password. Please check your credentials and try again.";
+        } else {
+          errorMsg = "Invalid email or password. Please check your credentials and try again.";
+        }
       }
       
       console.error(`[AuthScreen] Showing error to user: ${errorMsg}`);
