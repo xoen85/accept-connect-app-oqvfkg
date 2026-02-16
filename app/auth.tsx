@@ -13,68 +13,9 @@
  * ✅ POST /api/auth/sign-up/email - Email/password sign up (Better Auth)
  * ✅ GET /api/auth/get-session - Get current session (Better Auth)
  * ✅ OAuth flows handled by Better Auth
- * 
- * Authentication Flow:
- * ====================
- * 1. Email/Password Authentication:
- *    - Users can sign up with either email or username
- *    - For username-based signup, a synthetic email is created: username@acceptconnect.local
- *    - The username is stored in the 'name' field of the user record
- *    - For sign in, the app tries both the direct input and synthetic email format
- * 
- * 2. OAuth Authentication:
- *    - Web: Opens popup window for OAuth flow
- *    - Native: Uses deep linking with expo-linking
- *    - Session tokens are stored in SecureStore (native) or localStorage (web)
- * 
- * 3. Session Management:
- *    - Sessions persist across app restarts
- *    - Bearer tokens are automatically included in API requests
- *    - AuthContext manages user state and provides auth methods
- * 
- * IMPORTANT: Google OAuth Configuration for Android APK
- * ========================================================
- * To enable Google Sign-In on Android builds, you MUST:
- * 
- * 1. Get your SHA-1 fingerprint:
- *    For debug builds:
- *    keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android
- * 
- *    For release builds:
- *    keytool -list -v -keystore /path/to/your/release.keystore -alias your-key-alias
- * 
- * 2. Add SHA-1 to Google Cloud Console:
- *    - Go to: https://console.cloud.google.com/apis/credentials
- *    - Select your OAuth 2.0 Client ID for Android
- *    - Add the SHA-1 fingerprint
- *    - Package name: com.alessiobisulca.acceptconnect.com
- * 
- * 3. Verify the Android OAuth Client ID is active and linked
- * 
- * 4. Test the authentication and check logs for detailed error messages
- * 
- * Test Credentials:
- * =================
- * To test the app, create a new account using:
- * 
- * Option 1 - Username-based:
- * - Username: testuser1
- * - Password: testpass123
- * 
- * Option 2 - Email-based:
- * - Email: test@example.com
- * - Password: testpass123
- * 
- * Then create a second account to test GPS connections:
- * - Username: testuser2
- * - Password: testpass123
- * 
- * Password Requirements:
- * - Minimum 8 characters
- * - No special character requirements (for testing convenience)
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -95,7 +36,7 @@ type Mode = "signin" | "signup";
 
 export default function AuthScreen() {
   const router = useRouter();
-  const { signInWithEmail, signUpWithEmail, signInWithGoogle, signInWithApple, signInWithGitHub, loading: authLoading } =
+  const { user, signInWithEmail, signUpWithEmail, signInWithGoogle, signInWithApple, signInWithGitHub, loading: authLoading } =
     useAuth();
 
   const [mode, setMode] = useState<Mode>("signin");
@@ -110,6 +51,14 @@ export default function AuthScreen() {
     message: string;
     type: "success" | "error";
   }>({ title: "", message: "", type: "success" });
+
+  // Redirect to home when user is authenticated
+  useEffect(() => {
+    if (user && !authLoading) {
+      console.log("[AuthScreen] User authenticated, redirecting to home...");
+      router.replace("/(tabs)/(home)");
+    }
+  }, [user, authLoading, router]);
 
   const showMessage = (title: string, message: string, type: "success" | "error") => {
     console.log(`[AuthScreen] Showing ${type} message:`, title, message);
@@ -174,10 +123,7 @@ export default function AuthScreen() {
           "Account created successfully! You will be redirected to the home screen.",
           "success"
         );
-        setTimeout(() => {
-          console.log(`[AuthScreen] Navigating to home...`);
-          router.replace("/");
-        }, 1500);
+        // Navigation will happen via useEffect when user state updates
       } else {
         // For sign in, try with the input as-is first
         // If it's a username, try the synthetic email format
@@ -185,16 +131,16 @@ export default function AuthScreen() {
         
         try {
           await signInWithEmail(email, password);
-          console.log(`[AuthScreen] Sign in successful, navigating to home...`);
-          router.replace("/");
+          console.log(`[AuthScreen] Sign in successful!`);
+          // Navigation will happen via useEffect when user state updates
         } catch (firstError: any) {
           // If sign in failed and user might have entered a username, try synthetic email
           if (useUsername && !email.includes('@')) {
             console.log(`[AuthScreen] First attempt failed, trying with synthetic email format...`);
             const syntheticEmail = `${email}@acceptconnect.local`;
             await signInWithEmail(syntheticEmail, password);
-            console.log(`[AuthScreen] Sign in successful with synthetic email, navigating to home...`);
-            router.replace("/");
+            console.log(`[AuthScreen] Sign in successful with synthetic email!`);
+            // Navigation will happen via useEffect when user state updates
           } else {
             throw firstError;
           }
@@ -250,8 +196,8 @@ export default function AuthScreen() {
         await signInWithGitHub();
       }
       
-      console.log(`[AuthScreen] ${provider} authentication successful, navigating to home...`);
-      router.replace("/");
+      console.log(`[AuthScreen] ${provider} authentication successful!`);
+      // Navigation will happen via useEffect when user state updates
     } catch (error: any) {
       console.error(`[AuthScreen] ${provider} authentication failed:`, error);
       

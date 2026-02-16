@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { Platform } from "react-native";
 import * as Linking from "expo-linking";
 import { authClient, setBearerToken, clearAuthTokens, getBearerToken } from "@/lib/auth";
+import { useRouter } from "expo-router";
 
 interface User {
   id: string;
@@ -199,7 +200,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const token = await openOAuthPopup(provider);
         console.log(`[AuthContext] OAuth popup returned token`);
         await setBearerToken(token);
+        
+        // Wait a moment for the token to be synced
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        console.log(`[AuthContext] Fetching user after OAuth...`);
         await fetchUser();
+        
+        // Verify user was set
+        const currentToken = await getBearerToken();
+        console.log(`[AuthContext] Token in storage:`, currentToken ? "present" : "missing");
+        
       } else {
         // Native: Use expo-linking to generate a proper deep link
         const callbackURL = Linking.createURL("/");
@@ -218,9 +229,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error(result.error.message || `${provider} sign in failed`);
         }
         
-        // The redirect will reload the app or be handled by deep linking
-        // fetchUser will be called on mount or via event listener
-        console.log(`[AuthContext] ${provider} sign in initiated, waiting for redirect...`);
+        // Wait for the redirect to complete and session to be established
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        console.log(`[AuthContext] Fetching user after native OAuth...`);
+        await fetchUser();
       }
     } catch (error: any) {
       console.error(`[AuthContext] ${provider} sign in failed:`, error);
