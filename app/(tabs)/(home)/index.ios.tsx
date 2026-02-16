@@ -38,6 +38,7 @@ export default function HomeScreen() {
   const [nearbyDevices, setNearbyDevices] = useState<NearbyDevice[]>([]);
   const [showDeviceModal, setShowDeviceModal] = useState(false);
   const [bleManager, setBleManager] = useState<BleManager | null>(null);
+  const [bleAvailable, setBleAvailable] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [modalTitle, setModalTitle] = useState("");
   const [modalMessage, setModalMessage] = useState("");
@@ -60,9 +61,9 @@ export default function HomeScreen() {
   }, [bleManager]);
 
   const startScanning = useCallback(async () => {
-    if (!bleManager) {
-      console.log("BLE Manager not initialized");
-      showConfirmMessage("Error", "Bluetooth not available", "error");
+    if (!bleManager || !bleAvailable) {
+      console.log("BLE Manager not available");
+      showConfirmMessage("Bluetooth Unavailable", "Bluetooth is not available in Expo Go. Please use a development build or share a link instead.", "error");
       return;
     }
 
@@ -111,7 +112,7 @@ export default function HomeScreen() {
       setIsScanning(false);
       setShowDeviceModal(false);
     }
-  }, [bleManager, showConfirmMessage]);
+  }, [bleManager, bleAvailable, showConfirmMessage]);
 
   const handleShareLink = useCallback(async () => {
     console.log("User tapped Share Link");
@@ -138,6 +139,26 @@ export default function HomeScreen() {
 
   const handleAskButtonPress = useCallback(async () => {
     console.log("User tapped Ask button");
+    
+    // If BLE is not available (Expo Go), only show Share Link option
+    if (!bleAvailable) {
+      Alert.alert(
+        "Send Request",
+        "Bluetooth is not available in Expo Go. You can share a link instead.",
+        [
+          {
+            text: "Share Link",
+            onPress: () => handleShareLink(),
+          },
+          {
+            text: "Cancel",
+            style: "cancel",
+          },
+        ]
+      );
+      return;
+    }
+
     // Show options: Scan for nearby devices or Share link
     Alert.alert(
       "Send Request",
@@ -157,7 +178,7 @@ export default function HomeScreen() {
         },
       ]
     );
-  }, [startScanning, handleShareLink]);
+  }, [bleAvailable, startScanning, handleShareLink]);
 
   const handleSelectNearbyDevice = useCallback(async (device: NearbyDevice) => {
     console.log("User selected device:", device.name);
@@ -199,13 +220,34 @@ export default function HomeScreen() {
     }
   }, [shouldRedirect, router]);
 
-  // Initialize BLE Manager
+  // Initialize BLE Manager with error handling
   useEffect(() => {
-    const manager = new BleManager();
-    setBleManager(manager);
+    let manager: BleManager | null = null;
+    
+    try {
+      console.log("Attempting to initialize BLE Manager");
+      manager = new BleManager();
+      setBleManager(manager);
+      setBleAvailable(true);
+      console.log("BLE Manager initialized successfully");
+    } catch (error) {
+      console.log("BLE not available (Expo Go limitation):", error);
+      setBleAvailable(false);
+      showConfirmMessage(
+        "Bluetooth Unavailable",
+        "Bluetooth features are not available in Expo Go. You can still share links! For full Bluetooth support, use a development build.",
+        "error"
+      );
+    }
 
     return () => {
-      manager.destroy();
+      if (manager) {
+        try {
+          manager.destroy();
+        } catch (error) {
+          console.log("Error destroying BLE manager:", error);
+        }
+      }
     };
   }, []);
 
@@ -237,6 +279,11 @@ export default function HomeScreen() {
           <Text style={[styles.messagePreview, { color: colors.text }]}>
             {PREDEFINED_MESSAGE}
           </Text>
+          {!bleAvailable && (
+            <Text style={[styles.bleWarning, { color: "#f59e0b" }]}>
+              Bluetooth unavailable in Expo Go - Link sharing only
+            </Text>
+          )}
         </View>
 
         {/* Nearby Devices Modal */}
@@ -388,6 +435,13 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.lg,
     textAlign: "center",
     paddingHorizontal: spacing.lg,
+  },
+  bleWarning: {
+    marginTop: spacing.md,
+    fontSize: typography.sizes.sm,
+    textAlign: "center",
+    paddingHorizontal: spacing.lg,
+    fontStyle: "italic",
   },
   modalOverlay: {
     flex: 1,
