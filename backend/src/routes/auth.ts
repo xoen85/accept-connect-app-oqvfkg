@@ -2,6 +2,7 @@ import type { App } from '../index.js';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { eq } from 'drizzle-orm';
 import * as authSchema from '../db/auth-schema.js';
+import { randomBytes, randomUUID } from 'crypto';
 
 /**
  * Custom Authentication Routes
@@ -19,6 +20,7 @@ import * as authSchema from '../db/auth-schema.js';
  * This file provides additional features:
  * - POST /api/user/sign-in-with-username - Sign in using username instead of email
  * - GET /api/user/oauth-callback - OAuth callback handler for native apps with token in URL
+ * - POST /api/user/oauth-session - Establish and verify OAuth session (CRITICAL after OAuth)
  * - GET /api/user/verify-oauth-token - Verify and get session info from OAuth token
  *
  * ============================================================================
@@ -40,19 +42,22 @@ import * as authSchema from '../db/auth-schema.js';
  *    - Apple: Add redirect URI like https://your-backend.com/oauth-callback
  *    - GitHub: Add redirect URI like https://your-backend.com/oauth-callback
  *
- * 3. Native App OAuth Flow
+ * 3. Native App OAuth Flow (COMPLETE)
  *    a. User taps "Sign in with Google/Apple/GitHub"
  *    b. App opens browser with:
- *       https://your-backend.com/api/auth/sign-in/social?provider=google&redirect_uri=myapp://oauth-callback
- *    c. Better Auth handles OAuth exchange
- *    d. Browser redirects to: https://your-backend.com/oauth-callback
- *    e. Server validates credentials and creates session (cookie + DB record)
- *    f. Your app should then redirect to our custom callback handler:
- *       https://your-backend.com/api/user/oauth-callback?redirect_to=myapp://home&provider=google
- *    g. This endpoint appends the session token:
- *       myapp://home?better_auth_token=abc123...&user_id=xyz...&provider=google
+ *       POST /api/auth/sign-in/social with provider=google (gets OAuth URL)
+ *    c. User completes OAuth (Apple/Google authenticates user)
+ *    d. Browser redirects back to Better Auth's OAuth callback
+ *    e. Better Auth creates session in database
+ *    f. Frontend should call: GET /api/user/oauth-callback?redirect_to=myapp://home&provider=google
+ *    g. This returns: 302 redirect to myapp://home?better_auth_token=abc123...&user_id=xyz...&provider=google
  *    h. App receives deep link with token in query params
- *    i. App stores token for future API calls (Authorization: Bearer <token>)
+ *    i. App IMMEDIATELY calls: POST /api/user/oauth-session (with Bearer token in header OR empty body)
+ *       - This endpoint verifies the session exists
+ *       - If no session, it creates one
+ *       - Returns confirmed token and user data
+ *    j. App stores token for future API calls (Authorization: Bearer <token>)
+ *    k. App is now fully authenticated
  *
  * 4. Token Storage in Native App
  *    - Save the token to AsyncStorage or SecureStore
@@ -66,39 +71,80 @@ import * as authSchema from '../db/auth-schema.js';
  * const handleGoogleSignIn = async () => {
  *   const redirectUrl = Linking.createURL('oauth-callback');
  *
- *   // Open browser for OAuth
- *   const result = await WebBrowser.openAuthSessionAsync(
- *     `https://api.example.com/api/auth/sign-in/social?provider=google&redirect_uri=${encodeURIComponent(redirectUrl)}`,
- *     redirectUrl
- *   );
+ *   // Step 1: Get OAuth URL from backend
+ *   const oauthResponse = await fetch('https://api.example.com/api/auth/sign-in/social', {
+ *     method: 'POST',
+ *     headers: { 'Content-Type': 'application/json' },
+ *     body: JSON.stringify({
+ *       provider: 'google',
+ *       redirectURL: redirectUrl,
+ *       skipCSRFCheck: true
+ *     })
+ *   });
+ *   const { url: oauthUrl } = await oauthResponse.json();
+ *
+ *   // Step 2: Open browser for OAuth (Apple/Google handles authentication)
+ *   const result = await WebBrowser.openAuthSessionAsync(oauthUrl, redirectUrl);
  *
  *   if (result.type === 'success') {
- *     const url = new URL(result.url);
+ *     // Step 3: Get our callback endpoint to retrieve the token
+ *     const callbackUrl = `https://api.example.com/api/user/oauth-callback?redirect_to=${encodeURIComponent(redirectUrl)}&provider=google`;
+ *     const callbackResult = await fetch(callbackUrl);
+ *
+ *     // This redirects with better_auth_token in URL
+ *     const finalUrl = callbackResult.url;
+ *     const url = new URL(finalUrl);
  *     const token = url.searchParams.get('better_auth_token');
- *     const userId = url.searchParams.get('user_id');
  *
- *     // Save token
- *     await AsyncStorage.setItem('auth_token', token);
- *
- *     // Use token for API calls
- *     const response = await fetch('https://api.example.com/api/user/me', {
- *       headers: { 'Authorization': `Bearer ${token}` }
+ *     // Step 4: CRITICAL - Establish session on backend
+ *     // This ensures the session is properly created and verified
+ *     const sessionResponse = await fetch('https://api.example.com/api/user/oauth-session', {
+ *       method: 'POST',
+ *       headers: {
+ *         'Content-Type': 'application/json',
+ *         'Authorization': `Bearer ${token}`
+ *       },
+ *       body: JSON.stringify({ provider: 'google' })
  *     });
+ *
+ *     if (sessionResponse.ok) {
+ *       const { token: verifiedToken, user } = await sessionResponse.json();
+ *
+ *       // Step 5: Save verified token (this is guaranteed to work)
+ *       await AsyncStorage.setItem('auth_token', verifiedToken);
+ *       await AsyncStorage.setItem('user', JSON.stringify(user));
+ *
+ *       // Now you can use the token for all API calls
+ *       console.log('OAuth successful!', user);
+ *     } else {
+ *       // Session establishment failed
+ *       console.error('Failed to establish session');
+ *     }
  *   }
  * };
  *
- * // On app startup, verify token
- * const verifyToken = async () => {
+ * // On app startup, verify token and restore session
+ * const restoreSession = async () => {
  *   const token = await AsyncStorage.getItem('auth_token');
- *   if (!token) return;
+ *   if (!token) {
+ *     // No session, show login screen
+ *     return;
+ *   }
  *
- *   const response = await fetch(`https://api.example.com/api/user/verify-oauth-token?token=${token}`);
+ *   // Verify token is still valid
+ *   const response = await fetch(
+ *     `https://api.example.com/api/user/verify-oauth-token?token=${token}`
+ *   );
+ *
  *   if (response.ok) {
- *     // Token valid, update user state
  *     const { user } = await response.json();
+ *     // Token valid, restore user state
+ *     setUser(user);
  *   } else {
  *     // Token expired or invalid, clear and show login screen
  *     await AsyncStorage.removeItem('auth_token');
+ *     await AsyncStorage.removeItem('user');
+ *     setUser(null);
  *   }
  * };
  */
@@ -109,17 +155,23 @@ export function registerAuthRoutes(app: App) {
    * After successful OAuth authentication, the native app deep link redirects back here.
    * This endpoint retrieves the current session and appends the session token to the redirect URL.
    *
+   * IMPORTANT: This endpoint is called AFTER Better Auth has already processed the OAuth callback.
+   * At this point, the user should be authenticated (either via cookie or session).
+   *
    * Query params:
    * - redirect_to: The deep link URL to redirect back to (e.g., exp://nkbsfwi-anonymous-8081.exp.direct/--/)
    * - provider: The OAuth provider used (google, apple, github) - for logging
    *
    * Flow:
-   * 1. Native app initiates OAuth sign-in
-   * 2. Better Auth handles OAuth flow and creates session
-   * 3. Native app deep link redirects to this callback
-   * 4. We retrieve the session token from cookies or database
-   * 5. We append token to redirect URL: redirect_to?better_auth_token=<token>
-   * 6. Client redirects to the modified URL with token included
+   * 1. Native app initiates OAuth sign-in via POST /api/auth/sign-in/social
+   * 2. Better Auth returns OAuth URL
+   * 3. User completes OAuth in browser (Apple/Google handles authentication)
+   * 4. Browser redirects back to Better Auth's OAuth callback handler
+   * 5. Better Auth creates session and redirects to frontend
+   * 6. Frontend navigates to this endpoint with the session already established
+   * 7. We retrieve the authenticated user's session from database
+   * 8. We append token to redirect URL: redirect_to?better_auth_token=<token>
+   * 9. Client redirects to the modified URL with token included
    *
    * Example usage:
    * GET /api/user/oauth-callback?redirect_to=exp://nkbsfwi-anonymous-8081.exp.direct/--/&provider=google
@@ -138,6 +190,7 @@ export function registerAuthRoutes(app: App) {
         {
           redirectTo: redirect_to,
           provider,
+          hasAuthHeader: !!request.headers.authorization,
           cookieKeys: Object.keys((request as any).cookies || {}),
         },
         'OAuth callback initiated'
@@ -167,20 +220,16 @@ export function registerAuthRoutes(app: App) {
       }
 
       try {
-        // First, try to get session from Better Auth cookie
-        // Better Auth stores session in 'better-auth.session_token' cookie by default
-        const cookies = (request as any).cookies || {};
-        const sessionToken =
-          cookies['better-auth.session_token'] ||
-          cookies['auth-token'] ||
-          cookies['session'];
-
+        // Try multiple methods to get the session
         let sessionData = null;
+        let authenticatedUser = null;
 
-        if (sessionToken) {
-          // Query session table using the token
+        // Method 1: Check if there's an Authorization bearer token
+        const authHeader = request.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+          const token = authHeader.substring(7);
           sessionData = await app.db.query.session.findFirst({
-            where: eq(authSchema.session.token, sessionToken),
+            where: eq(authSchema.session.token, token),
           });
 
           if (sessionData) {
@@ -188,39 +237,88 @@ export function registerAuthRoutes(app: App) {
               {
                 userId: sessionData.userId,
                 provider,
-                source: 'cookie-token',
+                source: 'bearer-token',
               },
-              'OAuth callback session found via token cookie'
+              'OAuth callback session found via bearer token'
             );
           }
         }
 
-        // If no session from cookie, try to authenticate current request
+        // Method 2: Try to get session from Better Auth cookie
         if (!sessionData) {
-          app.logger.debug(
-            { redirectTo: redirect_to, provider },
-            'No session token in cookies, attempting authentication check'
-          );
+          const cookies = (request as any).cookies || {};
+          const sessionToken =
+            cookies['better-auth.session_token'] ||
+            cookies['auth-token'] ||
+            cookies['session'];
 
-          const requireAuth = app.requireAuth();
-          const session = await requireAuth(request, reply);
-
-          if (session) {
-            // Find the session record in database for this user
+          if (sessionToken) {
             sessionData = await app.db.query.session.findFirst({
-              where: eq(authSchema.session.userId, session.user.id),
+              where: eq(authSchema.session.token, sessionToken),
             });
 
             if (sessionData) {
+              app.logger.info(
+                {
+                  userId: sessionData.userId,
+                  provider,
+                  source: 'cookie-token',
+                },
+                'OAuth callback session found via token cookie'
+              );
+            }
+          }
+        }
+
+        // Method 3: Use requireAuth to check if user is authenticated
+        // This will work if Better Auth has already set up the session via cookies
+        if (!sessionData) {
+          app.logger.debug(
+            { redirectTo: redirect_to, provider },
+            'No session token found, attempting authentication check'
+          );
+
+          try {
+            const requireAuth = app.requireAuth();
+            const session = await requireAuth(request, reply);
+
+            if (session) {
+              authenticatedUser = session.user;
               app.logger.info(
                 {
                   userId: session.user.id,
                   provider,
                   source: 'authenticated-request',
                 },
-                'OAuth callback session found via authenticated request'
+                'User is authenticated via Better Auth'
               );
+
+              // Find the most recent session for this user
+              const allSessions = await app.db
+                .select()
+                .from(authSchema.session)
+                .where(eq(authSchema.session.userId, session.user.id));
+
+              if (allSessions.length > 0) {
+                // Get the most recently created session
+                sessionData = allSessions.reduce((latest, current) =>
+                  current.createdAt > latest.createdAt ? current : latest
+                );
+
+                app.logger.info(
+                  {
+                    userId: session.user.id,
+                    sessionCount: allSessions.length,
+                  },
+                  'Found user sessions in database'
+                );
+              }
             }
+          } catch (authError) {
+            app.logger.debug(
+              { error: authError instanceof Error ? authError.message : String(authError) },
+              'Authentication check failed - user may not be authenticated yet'
+            );
           }
         }
 
@@ -228,11 +326,12 @@ export function registerAuthRoutes(app: App) {
         if (!sessionData || !sessionData.token) {
           app.logger.warn(
             { redirectTo: redirect_to, provider },
-            'OAuth callback - no valid session found'
+            'OAuth callback - no valid session found after all attempts'
           );
           return reply.status(401).send({
-            error: 'No active session found. OAuth authentication may have failed.',
+            error: 'No active session found. OAuth authentication may have failed. Please ensure you have completed the OAuth flow.',
             code: 'NO_SESSION',
+            hint: 'The session should be created by Better Auth after OAuth completes. Check that cookies are being set correctly.',
           });
         }
 
@@ -271,6 +370,152 @@ export function registerAuthRoutes(app: App) {
       }
     }
   );
+  /**
+   * POST /api/user/oauth-session - Establish and verify OAuth session
+   *
+   * CRITICAL: Call this endpoint immediately after OAuth callback to ensure the session
+   * is properly established on the backend.
+   *
+   * This endpoint:
+   * 1. Checks if the user has an active authenticated session
+   * 2. If no session exists, creates one
+   * 3. Returns the session token that should be used for future API calls
+   *
+   * Body: (empty or optional)
+   * {
+   *   "provider": "google" | "apple" | "github" // optional, for logging
+   * }
+   *
+   * Returns:
+   * {
+   *   "success": true,
+   *   "token": "session_token",
+   *   "user": { id, email, name, image, emailVerified, ... },
+   *   "session": { expiresAt, createdAt }
+   * }
+   *
+   * This is called automatically by the frontend after OAuth redirects.
+   * The returned token should be stored in AsyncStorage/SecureStore.
+   */
+  app.fastify.post(
+    '/api/user/oauth-session',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { provider } = request.body as { provider?: string };
+
+      app.logger.info(
+        {
+          provider,
+          hasAuthHeader: !!request.headers.authorization,
+        },
+        'OAuth session establishment attempt'
+      );
+
+      try {
+        // First, try to get authenticated user via Better Auth
+        const requireAuth = app.requireAuth();
+        const session = await requireAuth(request, reply);
+
+        if (!session || !session.user) {
+          app.logger.warn(
+            { provider },
+            'OAuth session - user not authenticated'
+          );
+          return reply.status(401).send({
+            error: 'User not authenticated. OAuth may not have completed successfully.',
+            code: 'NOT_AUTHENTICATED',
+          });
+        }
+
+        const userId = session.user.id;
+        app.logger.info(
+          { userId, provider },
+          'User authenticated, retrieving session'
+        );
+
+        // Get all sessions for this user
+        const userSessions = await app.db
+          .select()
+          .from(authSchema.session)
+          .where(eq(authSchema.session.userId, userId));
+
+        // Find the most recent valid session
+        let sessionData = userSessions.find(
+          (s) => new Date() < s.expiresAt
+        );
+
+        // If no valid session exists, create one
+        if (!sessionData) {
+          app.logger.info(
+            { userId, provider },
+            'No valid session found, creating new session'
+          );
+
+          // Generate a new session token
+          const newSessionToken = randomBytes(32).toString('hex');
+          const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+
+          const [created] = await app.db
+            .insert(authSchema.session)
+            .values({
+              id: randomUUID(),
+              token: newSessionToken,
+              userId: userId,
+              expiresAt: expiresAt,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              ipAddress: request.ip,
+              userAgent: (request.headers['user-agent'] || null) as string | null,
+            })
+            .returning();
+
+          sessionData = created;
+
+          app.logger.info(
+            { userId, sessionId: created.id, provider },
+            'New OAuth session created'
+          );
+        } else {
+          app.logger.info(
+            { userId, sessionId: sessionData.id, provider },
+            'Using existing valid session'
+          );
+        }
+
+        // Return session data
+        return {
+          success: true,
+          token: sessionData.token,
+          user: {
+            id: session.user.id,
+            email: session.user.email,
+            name: session.user.name,
+            image: session.user.image,
+            emailVerified: session.user.emailVerified,
+            createdAt: session.user.createdAt,
+            updatedAt: session.user.updatedAt,
+          },
+          session: {
+            expiresAt: sessionData.expiresAt,
+            createdAt: sessionData.createdAt,
+          },
+        };
+      } catch (error) {
+        app.logger.error(
+          {
+            err: error,
+            provider,
+            message: error instanceof Error ? error.message : String(error),
+          },
+          'OAuth session establishment failed'
+        );
+        return reply.status(500).send({
+          error: 'Failed to establish session',
+          code: 'SESSION_ESTABLISHMENT_FAILED',
+        });
+      }
+    }
+  );
+
   /**
    * GET /api/user/verify-oauth-token - Verify and retrieve session from OAuth token
    *
