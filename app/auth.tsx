@@ -56,6 +56,7 @@ export default function AuthScreen() {
   useEffect(() => {
     if (user && !authLoading) {
       console.log("[AuthScreen] User authenticated, redirecting to home...");
+      setLoading(false); // Clear loading state
       router.replace("/(tabs)/(home)");
     }
   }, [user, authLoading, router]);
@@ -196,8 +197,10 @@ export default function AuthScreen() {
         await signInWithGitHub();
       }
       
-      console.log(`[AuthScreen] ${provider} authentication successful!`);
-      // Navigation will happen via useEffect when user state updates
+      console.log(`[AuthScreen] ${provider} authentication initiated successfully!`);
+      console.log(`[AuthScreen] Waiting for OAuth callback to complete...`);
+      // Navigation will happen via useEffect when user state updates after the deep link callback
+      // Keep loading state active to show user that authentication is in progress
     } catch (error: any) {
       console.error(`[AuthScreen] ${provider} authentication failed:`, error);
       
@@ -218,9 +221,7 @@ export default function AuthScreen() {
       
       console.error(`[AuthScreen] Showing error to user: ${errorMsg}`);
       showMessage("Authentication Error", errorMsg, "error");
-    } finally {
       setLoading(false);
-      console.log(`[AuthScreen] ${provider} authentication process completed`);
     }
   };
 

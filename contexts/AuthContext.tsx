@@ -80,11 +80,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Listen for deep links (e.g. from social auth redirects)
     const subscription = Linking.addEventListener("url", (event) => {
       console.log("[AuthContext] Deep link received:", event.url);
-      // Allow time for the client to process the token if needed
+      // Allow time for the Better Auth client to process the OAuth callback
+      // and establish the session before we try to fetch the user
       setTimeout(() => {
-        console.log("[AuthContext] Refreshing user session after deep link");
+        console.log("[AuthContext] Refreshing user session after deep link (attempt 1)");
         fetchUser();
-      }, 500);
+        
+        // If the first attempt doesn't work, try again after a longer delay
+        setTimeout(() => {
+          console.log("[AuthContext] Refreshing user session after deep link (attempt 2)");
+          fetchUser();
+        }, 1500);
+      }, 1000);
     });
 
     return () => {
@@ -229,11 +236,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error(result.error.message || `${provider} sign in failed`);
         }
         
-        // Wait for the redirect to complete and session to be established
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        console.log(`[AuthContext] Fetching user after native OAuth...`);
-        await fetchUser();
+        // The OAuth flow will redirect back to the app via deep link
+        // The deep link listener will trigger fetchUser() automatically
+        // So we don't need to call fetchUser() here - it will be called by the deep link handler
+        console.log(`[AuthContext] OAuth redirect initiated, waiting for deep link callback...`);
       }
     } catch (error: any) {
       console.error(`[AuthContext] ${provider} sign in failed:`, error);
