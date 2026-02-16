@@ -53,6 +53,18 @@ export const authClient = createAuthClient({
       storage,
     }),
   ],
+  fetchOptions: {
+    // Ensure credentials are included for cookie-based auth
+    credentials: Platform.OS === "web" ? "include" : "same-origin",
+    // Add custom header interceptor to include bearer token
+    onRequest: async (context) => {
+      const token = await getBearerToken();
+      if (token) {
+        context.headers.set("Authorization", `Bearer ${token}`);
+      }
+      return context;
+    },
+  },
 });
 
 export async function setBearerToken(token: string) {
