@@ -57,7 +57,11 @@ export default function AuthScreen() {
     if (user && !authLoading) {
       console.log("[AuthScreen] User authenticated, redirecting to home...");
       setLoading(false); // Clear loading state
-      router.replace("/(tabs)/(home)");
+      
+      // Small delay to show success state
+      setTimeout(() => {
+        router.replace("/(tabs)/(home)");
+      }, 500);
     }
   }, [user, authLoading, router]);
 
@@ -199,6 +203,16 @@ export default function AuthScreen() {
       
       console.log(`[AuthScreen] ${provider} authentication initiated successfully!`);
       console.log(`[AuthScreen] Waiting for OAuth callback to complete...`);
+      
+      // On native platforms, keep loading state active while waiting for deep link
+      // On web, the popup will handle the flow
+      if (Platform.OS !== "web") {
+        console.log(`[AuthScreen] Native platform - waiting for deep link callback...`);
+        console.log(`[AuthScreen] Expected deep link format: acceptconnect://?better_auth_token=...`);
+        console.log(`[AuthScreen] If authentication doesn't complete, check the backend logs`);
+        console.log(`[AuthScreen] The backend must append the token to the redirect URL for native apps`);
+      }
+      
       // Navigation will happen via useEffect when user state updates after the deep link callback
       // Keep loading state active to show user that authentication is in progress
     } catch (error: any) {
@@ -206,6 +220,16 @@ export default function AuthScreen() {
       
       // Provide helpful error messages for common OAuth issues
       let errorMsg = error.message || `${provider} authentication failed. Please try again.`;
+      
+      // Check if this is the "no token received" error
+      if (errorMsg.includes("no token was received") || errorMsg.includes("backend may not be configured")) {
+        errorMsg = `OAuth authentication completed but the app couldn't sign you in.\n\n` +
+          `This is likely because the backend is not configured to append authentication tokens to redirect URLs for native apps.\n\n` +
+          `Technical details:\n` +
+          `- The backend OAuth callback must detect native app redirects (URLs starting with "acceptconnect://")\n` +
+          `- It must append the session token as a query parameter: ?better_auth_token=<token>\n\n` +
+          `Please contact the app administrator to fix this issue.`;
+      }
       
       // Add specific guidance for Google OAuth on Android
       if (provider === "google" && Platform.OS === "android") {
@@ -299,6 +323,21 @@ export default function AuthScreen() {
             </Text>
           </TouchableOpacity>
 
+          {__DEV__ && (
+            <View style={styles.debugInfo}>
+              <Text style={styles.debugTitle}>🔧 Debug Info</Text>
+              <Text style={styles.debugText}>
+                Backend: {Platform.OS === "web" ? "Web" : "Native"} mode
+              </Text>
+              <Text style={styles.debugText}>
+                Scheme: acceptconnect://
+              </Text>
+              <Text style={styles.debugText}>
+                Check Metro logs for OAuth flow details
+              </Text>
+            </View>
+          )}
+
           <View style={styles.divider}>
             <View style={styles.dividerLine} />
             <Text style={styles.dividerText}>or continue with</Text>
@@ -326,6 +365,24 @@ export default function AuthScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Loading Overlay for OAuth */}
+      {loading && Platform.OS !== "web" && (
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="large" color="#007AFF" />
+            <Text style={styles.loadingTitle}>Authenticating...</Text>
+            <Text style={styles.loadingSubtitle}>
+              Complete the sign-in in your browser
+            </Text>
+            {__DEV__ && (
+              <Text style={styles.loadingDebug}>
+                Waiting for deep link callback...
+              </Text>
+            )}
+          </View>
+        </View>
+      )}
 
       {/* Message Modal */}
       <Modal
@@ -465,6 +522,24 @@ const styles = StyleSheet.create({
   appleButtonText: {
     color: "#fff",
   },
+  debugInfo: {
+    backgroundColor: "#f5f5f5",
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  debugTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 8,
+    color: "#333",
+  },
+  debugText: {
+    fontSize: 12,
+    color: "#666",
+    marginBottom: 4,
+    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
+  },
   toggleButton: {
     marginBottom: 8,
     alignItems: 'flex-end',
@@ -519,5 +594,42 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  loadingCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 32,
+    alignItems: 'center',
+    maxWidth: 300,
+    margin: 24,
+  },
+  loadingTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+    color: '#000',
+  },
+  loadingSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  loadingDebug: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 12,
+    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
   },
 });

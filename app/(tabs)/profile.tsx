@@ -382,6 +382,42 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Debug Section - OAuth Status */}
+        {__DEV__ && (
+          <View style={[styles.aboutSection, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
+            <Text style={[styles.aboutTitle, { color: themeColors.text }]}>
+              🔧 Debug Info
+            </Text>
+            <Text style={[styles.debugLabel, { color: themeColors.textSecondary }]}>
+              User ID:
+            </Text>
+            <Text style={[styles.debugValue, { color: themeColors.text }]}>
+              {user.id}
+            </Text>
+            <Text style={[styles.debugLabel, { color: themeColors.textSecondary }]}>
+              Email:
+            </Text>
+            <Text style={[styles.debugValue, { color: themeColors.text }]}>
+              {user.email}
+            </Text>
+            <Text style={[styles.debugLabel, { color: themeColors.textSecondary }]}>
+              Name:
+            </Text>
+            <Text style={[styles.debugValue, { color: themeColors.text }]}>
+              {user.name || "Not set"}
+            </Text>
+            <Text style={[styles.debugLabel, { color: themeColors.textSecondary }]}>
+              Profile Image:
+            </Text>
+            <Text style={[styles.debugValue, { color: themeColors.text }]}>
+              {user.image ? "Set" : "Not set"}
+            </Text>
+            <Text style={[styles.debugNote, { color: themeColors.textSecondary }]}>
+              💡 Check Metro logs for detailed OAuth flow information
+            </Text>
+          </View>
+        )}
+
         {/* About Section */}
         <View style={[styles.aboutSection, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
           <Text style={[styles.aboutTitle, { color: themeColors.text }]}>
@@ -761,6 +797,21 @@ const styles = StyleSheet.create({
   },
   version: {
     ...typography.caption,
+  },
+  debugLabel: {
+    ...typography.caption,
+    marginTop: spacing.sm,
+    fontWeight: '600',
+  },
+  debugValue: {
+    ...typography.bodySmall,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    marginTop: spacing.xs,
+  },
+  debugNote: {
+    ...typography.caption,
+    marginTop: spacing.md,
+    fontStyle: 'italic',
   },
   signOutButton: {
     flexDirection: 'row',
