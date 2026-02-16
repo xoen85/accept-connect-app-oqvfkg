@@ -5,7 +5,6 @@ import { useRouter, useSegments } from "expo-router";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ThemeProvider, DarkTheme, DefaultTheme } from "@react-navigation/native";
 import { useColorScheme } from "react-native";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 function RootLayoutNav() {
   const { user, loading } = useAuth();
@@ -47,10 +46,8 @@ function RootLayoutNav() {
 
 export default function RootLayout() {
   return (
-    <ErrorBoundary>
       <AuthProvider>
         <RootLayoutNav />
       </AuthProvider>
-    </ErrorBoundary>
   );
 }
