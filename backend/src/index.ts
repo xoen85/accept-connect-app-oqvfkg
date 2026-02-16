@@ -28,6 +28,9 @@ export type App = typeof app;
 // Supports: Google (Web + Android), Apple, GitHub + Email/Password
 // Email/password authentication is enabled by default in Better Auth
 // For SPID (Italian Digital Identity): implement custom OpenID Connect endpoint separately
+//
+// NOTE: OAuth callback URL validation is handled in /api/user/oauth-callback endpoint
+// which accepts mobile app schemes (acceptconnect://, exp://) and localhost/https URLs
 app.withAuth({
   socialProviders: {
     // Google OAuth (supports Web and Android builds)

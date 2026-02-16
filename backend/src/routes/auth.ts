@@ -34,13 +34,22 @@ import { randomBytes, randomUUID } from 'crypto';
  * -----------
  *
  * 1. Configure Deep Links in Your Native App
- *    - Register a custom deep link scheme (e.g., myapp://, exp://)
+ *    - Register a custom deep link scheme (e.g., myapp://, exp://, acceptconnect://)
  *    - Example Expo: Add "scheme": "myapp" in app.json
+ *    - For Android APK: Use your app's custom scheme (e.g., acceptconnect://)
  *
  * 2. Set OAuth Redirect URI in Provider Console
- *    - Google: Add redirect URI like https://your-backend.com/oauth-callback
- *    - Apple: Add redirect URI like https://your-backend.com/oauth-callback
- *    - GitHub: Add redirect URI like https://your-backend.com/oauth-callback
+ *    IMPORTANT: Set this to your BACKEND OAuth callback endpoint, NOT the app's deep link!
+ *    - Google: Add redirect URI like https://your-backend.com/api/auth/oauth-callback
+ *    - Apple: Add redirect URI like https://your-backend.com/api/auth/oauth-callback
+ *    - GitHub: Add redirect URI like https://your-backend.com/api/auth/oauth-callback
+ *
+ *    The backend will then redirect to your app's deep link with the token appended.
+ *    Supported callback URL schemes on backend:
+ *    - acceptconnect:// (Android native apps)
+ *    - exp:// (Expo development apps)
+ *    - http://localhost (local development)
+ *    - https:// (production web)
  *
  * 3. Native App OAuth Flow (COMPLETE)
  *    a. User taps "Sign in with Google/Apple/GitHub"
@@ -205,16 +214,36 @@ export function registerAuthRoutes(app: App) {
         });
       }
 
-      // Validate that redirect_to is a valid URL (basic check)
-      try {
-        new URL(redirect_to);
-      } catch {
+      // Validate that redirect_to is a valid URL
+      // Support mobile app schemes (acceptconnect://, exp://), localhost, and https URLs
+      const isValidRedirectUrl = (url: string): boolean => {
+        try {
+          // For custom schemes without //, they may not parse with URL constructor
+          // Check if it's a known mobile app scheme or localhost/https
+          if (
+            url.startsWith('acceptconnect://') ||
+            url.startsWith('exp://') ||
+            url.startsWith('http://localhost') ||
+            url.startsWith('http://127.0.0.1') ||
+            url.startsWith('https://')
+          ) {
+            return true;
+          }
+          // Try standard URL parsing for other formats
+          new URL(url);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      if (!isValidRedirectUrl(redirect_to)) {
         app.logger.warn(
           { redirectTo: redirect_to },
-          'OAuth callback invalid redirect_to URL'
+          'OAuth callback invalid redirect_to URL - unsupported scheme or format'
         );
         return reply.status(400).send({
-          error: 'Invalid redirect_to URL',
+          error: 'Invalid redirect_to URL. Supported schemes: acceptconnect://, exp://, http://localhost, https://',
           code: 'INVALID_REDIRECT_URL',
         });
       }
@@ -336,23 +365,37 @@ export function registerAuthRoutes(app: App) {
         }
 
         // Append token and metadata to redirect URL
-        const redirectUrl = new URL(redirect_to);
-        redirectUrl.searchParams.set('better_auth_token', sessionData.token);
-        redirectUrl.searchParams.set('user_id', sessionData.userId);
-        redirectUrl.searchParams.set('provider', provider || 'unknown');
+        // Handle custom schemes (acceptconnect://, exp://) that don't parse with URL constructor
+        let redirectUrl: string;
+        try {
+          // Try to use URL constructor for standard URLs
+          const urlObj = new URL(redirect_to);
+          urlObj.searchParams.set('better_auth_token', sessionData.token);
+          urlObj.searchParams.set('user_id', sessionData.userId);
+          urlObj.searchParams.set('provider', provider || 'unknown');
+          redirectUrl = urlObj.toString();
+        } catch {
+          // Fallback for custom schemes - manually append query parameters
+          const separator = redirect_to.includes('?') ? '&' : '?';
+          const params = new URLSearchParams();
+          params.set('better_auth_token', sessionData.token);
+          params.set('user_id', sessionData.userId);
+          params.set('provider', provider || 'unknown');
+          redirectUrl = `${redirect_to}${separator}${params.toString()}`;
+        }
 
         app.logger.info(
           {
             userId: sessionData.userId,
             provider,
             tokenLength: sessionData.token.length,
-            redirectUrl: redirectUrl.toString().replace(/better_auth_token=[^&]+/, 'better_auth_token=***'),
+            redirectUrl: redirectUrl.replace(/better_auth_token=[^&]+/, 'better_auth_token=***'),
           },
           'OAuth callback successful - redirecting with token'
         );
 
         // Redirect with token in URL
-        return reply.redirect(redirectUrl.toString());
+        return reply.redirect(redirectUrl);
       } catch (error) {
         app.logger.error(
           {
