@@ -45,7 +45,6 @@ export type App = typeof app;
 // Callback URL validation is handled at the route level in /api/user/oauth-callback
 // Additional validation is performed via the custom OAuth callback endpoint.
 app.withAuth({
-	trustedOrigins: ["acceptconnect://"],
   socialProviders: {
     // Google OAuth (supports Web and Android builds)
     // For Android: Package name is com.alessiobisulca.acceptconnect.com
