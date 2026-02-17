@@ -51,6 +51,10 @@ export const authClient = createAuthClient({
       scheme: "acceptconnect",
       storagePrefix: "acceptconnect",
       storage,
+      // Explicitly set redirect URIs for OAuth
+      redirectURI: Platform.OS === "web" 
+        ? `${window.location.origin}/auth-callback`
+        : "acceptconnect://auth-callback",
     }),
   ],
   fetchOptions: {

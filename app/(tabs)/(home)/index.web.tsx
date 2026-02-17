@@ -84,13 +84,22 @@ export default function HomeScreen() {
     setModalVisible(false);
   }, []);
 
-  // Redirect to auth if not logged in
+  // Redirect to auth if not logged in (with guard to prevent navigation before mount)
+  const [shouldRedirect, setShouldRedirect] = useState(false);
+  
   useEffect(() => {
     if (!authLoading && !user) {
-      console.log("User not authenticated, redirecting to auth screen");
+      console.log("User not authenticated, will redirect to auth screen");
+      setShouldRedirect(true);
+    }
+  }, [user, authLoading]);
+  
+  useEffect(() => {
+    if (shouldRedirect) {
+      console.log("Redirecting to auth screen");
       router.replace("/auth");
     }
-  }, [user, authLoading, router]);
+  }, [shouldRedirect, router]);
 
   if (authLoading) {
     return (

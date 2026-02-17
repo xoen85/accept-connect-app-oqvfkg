@@ -216,10 +216,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       console.log("[AuthContext] Signing in with email:", email);
       
+      const callbackURL = Platform.OS === "web" 
+        ? `${window.location.origin}/auth-callback`
+        : "acceptconnect://auth-callback";
+      
+      console.log("[AuthContext] Using callback URL:", callbackURL);
+      
       const result = await authClient.signIn.email({ 
         email, 
         password,
-        callbackURL: Platform.OS === "web" ? undefined : Linking.createURL("/"),
+        callbackURL,
       });
       
       console.log("[AuthContext] Sign in result:", result);
@@ -266,11 +272,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       console.log("[AuthContext] Signing up with email:", email, "name:", name);
       
+      const callbackURL = Platform.OS === "web" 
+        ? `${window.location.origin}/auth-callback`
+        : "acceptconnect://auth-callback";
+      
+      console.log("[AuthContext] Using callback URL:", callbackURL);
+      
       const result = await authClient.signUp.email({
         email,
         password,
         name: name || email,
-        callbackURL: Platform.OS === "web" ? undefined : Linking.createURL("/"),
+        callbackURL,
       });
       
       console.log("[AuthContext] Sign up result:", result);
@@ -344,7 +356,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
       } else {
         // Native: Use WebBrowser to open OAuth flow
-        const callbackURL = Linking.createURL("/");
+        const callbackURL = "acceptconnect://auth-callback";
         console.log(`[AuthContext] Native platform - callback URL: ${callbackURL}`);
         
         const result = await authClient.signIn.social({
