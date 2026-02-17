@@ -161,31 +161,37 @@ export function registerAuthRoutes(app: App) {
   /**
    * GET /api/user/oauth-callback - OAuth callback handler for native apps
    *
+   * Supports custom mobile app deep-link schemes:
+   * - acceptconnect:// (Android native app)
+   * - acceptconnect://auth-callback
+   * - acceptconnect://oauth-callback
+   * - exp:// (Expo development/production)
+   * - https:// (web/production)
+   * - http://localhost (local development)
+   *
    * After successful OAuth authentication, the native app deep link redirects back here.
    * This endpoint retrieves the current session and appends the session token to the redirect URL.
    *
-   * IMPORTANT: This endpoint is called AFTER Better Auth has already processed the OAuth callback.
-   * At this point, the user should be authenticated (either via cookie or session).
-   *
    * Query params:
-   * - redirect_to: The deep link URL to redirect back to (e.g., exp://nkbsfwi-anonymous-8081.exp.direct/--/)
-   * - provider: The OAuth provider used (google, apple, github) - for logging
+   * - redirect_to: The deep link URL to redirect back to
+   * - provider: The OAuth provider used (google, apple, github)
    *
-   * Flow:
-   * 1. Native app initiates OAuth sign-in via POST /api/auth/sign-in/social
+   * OAuth flow:
+   * 1. App calls: POST /api/auth/sign-in/social with redirectURL=acceptconnect://auth-callback
    * 2. Better Auth returns OAuth URL
-   * 3. User completes OAuth in browser (Apple/Google handles authentication)
-   * 4. Browser redirects back to Better Auth's OAuth callback handler
-   * 5. Better Auth creates session and redirects to frontend
-   * 6. Frontend navigates to this endpoint with the session already established
-   * 7. We retrieve the authenticated user's session from database
-   * 8. We append token to redirect URL: redirect_to?better_auth_token=<token>
-   * 9. Client redirects to the modified URL with token included
+   * 3. App opens browser for OAuth
+   * 4. User authenticates with provider
+   * 5. Provider redirects to Better Auth's callback
+   * 6. Better Auth creates session
+   * 7. App calls: GET /api/user/oauth-callback?redirect_to=acceptconnect://auth-callback
+   * 8. We append token and redirect
+   * 9. Mobile OS routes to app via deep link with token in URL
    *
    * Example usage:
+   * GET /api/user/oauth-callback?redirect_to=acceptconnect://auth-callback&provider=google
    * GET /api/user/oauth-callback?redirect_to=exp://nkbsfwi-anonymous-8081.exp.direct/--/&provider=google
    *
-   * Response: 302 redirect to exp://nkbsfwi-anonymous-8081.exp.direct/--/?better_auth_token=<token>&user_id=<id>&provider=google
+   * Response: 302 redirect to acceptconnect://auth-callback?better_auth_token=<token>&user_id=<id>&provider=google
    */
   app.fastify.get(
     '/api/user/oauth-callback',

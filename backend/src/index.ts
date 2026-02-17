@@ -29,8 +29,18 @@ export type App = typeof app;
 // Email/password authentication is enabled by default in Better Auth
 // For SPID (Italian Digital Identity): implement custom OpenID Connect endpoint separately
 //
-// NOTE: OAuth callback URL validation is handled in /api/user/oauth-callback endpoint
-// which accepts mobile app schemes (acceptconnect://, exp://) and localhost/https URLs
+// Custom OAuth Callback URL Schemes:
+// The app supports mobile app deep link schemes (acceptconnect://, exp://) in addition to standard URLs.
+// Better Auth processes the OAuth callback, and then /api/user/oauth-callback handles
+// the redirect to the native app with the token in query parameters.
+//
+// Supported callback URL formats:
+// - acceptconnect:// (Android native app)
+// - acceptconnect://auth-callback
+// - acceptconnect://oauth-callback
+// - exp:// (Expo development/production)
+// - https:// (web/production)
+// - http://localhost (local development)
 app.withAuth({
   socialProviders: {
     // Google OAuth (supports Web and Android builds)
@@ -46,6 +56,7 @@ app.withAuth({
         }
       : undefined,
     // Apple OAuth (supports both proxy and custom credentials)
+    // Bundle ID (iOS): com.anonymous.Natively
     apple: process.env.APPLE_CLIENT_ID && process.env.APPLE_CLIENT_SECRET
       ? {
           clientId: process.env.APPLE_CLIENT_ID,
