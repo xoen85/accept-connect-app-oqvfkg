@@ -146,26 +146,34 @@ export default function HomeScreen() {
   }, [bleManager, showConfirmMessage]);
 
   const handleShareLink = useCallback(async () => {
-    console.log("User tapped Share Link");
+    console.log("[Home] User tapped Share Link");
     try {
-      console.log("Creating message to generate secure link");
+      console.log("[Home] Creating message to generate secure link");
+      
+      // POST /api/messages - Create a new message
       const response = await authenticatedPost("/api/messages", {
-        message: PREDEFINED_MESSAGE,
+        content: PREDEFINED_MESSAGE,
       });
 
-      const messageId = response.id;
-      const shareUrl = `${response.shareUrl || `https://acceptconnect.app/message/${response.token}`}`;
-      console.log("Secure link generated:", shareUrl);
+      console.log("[Home] Message created:", response);
+
+      // POST /api/messages/:id/share-formats - Generate share link and QR code
+      const shareResponse = await authenticatedPost(`/api/messages/${response.id}/share-formats`, {});
+      
+      const shareUrl = shareResponse.shareLink || shareResponse.link || `https://acceptconnect.app/message/${response.shareToken || response.token}`;
+      console.log("[Home] Secure link generated:", shareUrl);
 
       await Share.share({
         message: `${PREDEFINED_MESSAGE}\n\nRespond here: ${shareUrl}`,
         url: shareUrl,
       });
 
-      console.log("Link shared successfully");
-    } catch (error) {
-      console.error("Error sharing link:", error);
-      showConfirmMessage("Error", "Failed to generate share link", "error");
+      console.log("[Home] Link shared successfully");
+      showConfirmMessage("Success", "Share link created successfully!", "success");
+    } catch (error: any) {
+      console.error("[Home] Error sharing link:", error);
+      const errorMsg = error?.message || "Failed to generate share link";
+      showConfirmMessage("Error", errorMsg, "error");
     }
   }, [showConfirmMessage]);
 
