@@ -221,23 +221,47 @@ export function registerAuthRoutes(app: App) {
       }
 
       // Validate that redirect_to is a valid URL
-      // Support mobile app schemes (acceptconnect://, exp://), localhost, and https URLs
+      // Support:
+      // - Native mobile app schemes: acceptconnect://*, exp://*
+      // - Web development: http://localhost:*, http://127.0.0.1:*
+      // - Production: https://* (including https://gn4vxb67x7uhv3udtqg6e6b28yhf5ga3.app.specular.dev)
       const isValidRedirectUrl = (url: string): boolean => {
         try {
-          // For custom schemes without //, they may not parse with URL constructor
-          // Check if it's a known mobile app scheme or localhost/https
-          if (
-            url.startsWith('acceptconnect://') ||
-            url.startsWith('exp://') ||
-            url.startsWith('http://localhost') ||
-            url.startsWith('http://127.0.0.1') ||
-            url.startsWith('https://')
-          ) {
+          // Native mobile app custom schemes
+          if (url.startsWith('acceptconnect://') || url.startsWith('exp://')) {
             return true;
           }
-          // Try standard URL parsing for other formats
-          new URL(url);
-          return true;
+
+          // Web URLs - parse and validate origin
+          const urlObj = new URL(url);
+          const protocol = urlObj.protocol;
+          const hostname = urlObj.hostname;
+          const port = urlObj.port;
+
+          // HTTP/HTTPS URLs
+          if (protocol === 'http:' || protocol === 'https:') {
+            // localhost on any port (development)
+            if (hostname === 'localhost' || hostname === '127.0.0.1') {
+              return true;
+            }
+
+            // Production frontend domain
+            if (hostname === 'gn4vxb67x7uhv3udtqg6e6b28yhf5ga3.app.specular.dev' && protocol === 'https:') {
+              return true;
+            }
+
+            // Allow any other https:// URLs (future domains)
+            if (protocol === 'https:') {
+              return true;
+            }
+
+            // Allow http on localhost with specific ports
+            if (protocol === 'http:' && (hostname === 'localhost' || hostname === '127.0.0.1')) {
+              return true;
+            }
+          }
+
+          return false;
         } catch {
           return false;
         }
@@ -249,7 +273,7 @@ export function registerAuthRoutes(app: App) {
           'OAuth callback invalid redirect_to URL - unsupported scheme or format'
         );
         return reply.status(400).send({
-          error: 'Invalid redirect_to URL. Supported schemes: acceptconnect://, exp://, http://localhost, https://',
+          error: 'Invalid redirect_to URL. Supported: acceptconnect://, exp://, http://localhost:*, http://127.0.0.1:*, https://*',
           code: 'INVALID_REDIRECT_URL',
         });
       }

@@ -29,20 +29,22 @@ export type App = typeof app;
 // Email/password authentication is enabled by default in Better Auth
 // For SPID (Italian Digital Identity): implement custom OpenID Connect endpoint separately
 //
-// Custom OAuth Callback URL Schemes:
-// The app supports mobile app deep link schemes (acceptconnect://, exp://) in addition to standard URLs.
-// Better Auth processes the OAuth callback, and then /api/user/oauth-callback handles
-// the redirect to the native app with the token in query parameters.
+// OAuth Callback URL Configuration:
+// The app supports both native mobile app deep-link schemes and web URLs:
 //
-// Supported callback URL formats:
-// - acceptconnect:// (Android native app)
-// - acceptconnect://auth-callback
-// - acceptconnect://oauth-callback
-// - exp:// (Expo development/production)
-// - https:// (web/production)
-// - http://localhost (local development)
+// Native (Android/iOS) callback URLs:
+// - acceptconnect:// (base scheme for deep linking)
+// - acceptconnect://oauth-callback (specific callback endpoint)
+// - acceptconnect://auth-callback (alternative callback endpoint)
+//
+// Web callback URLs:
+// - http://localhost:8081/* (dev web on port 8081)
+// - http://localhost:19006/* (Expo web on port 19006)
+// - https://gn4vxb67x7uhv3udtqg6e6b28yhf5ga3.app.specular.dev/* (production frontend)
+//
+// Callback URL validation is handled at the route level in /api/user/oauth-callback
+// Additional validation is performed via the custom OAuth callback endpoint.
 app.withAuth({
-	trustedOrigins: ["acceptconnect://"],
   socialProviders: {
     // Google OAuth (supports Web and Android builds)
     // For Android: Package name is com.alessiobisulca.acceptconnect.com
