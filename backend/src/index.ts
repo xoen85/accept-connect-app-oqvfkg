@@ -42,6 +42,7 @@ export type App = typeof app;
 // - https:// (web/production)
 // - http://localhost (local development)
 app.withAuth({
+	trustedOrigins: ["acceptconnect://"],
   socialProviders: {
     // Google OAuth (supports Web and Android builds)
     // For Android: Package name is com.alessiobisulca.acceptconnect.com
