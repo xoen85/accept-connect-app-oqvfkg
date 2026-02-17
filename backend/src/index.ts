@@ -14,6 +14,7 @@ import { registerOAuthProfileRoutes } from './routes/oauth-profile.js';
 import { registerLocationRoutes } from './routes/location.js';
 import { registerConnectionRoutes } from './routes/connections.js';
 import { registerAuthRoutes } from './routes/auth.js';
+import { expo } from '@better-auth/expo';
 
 // Combine app and auth schemas
 const schema = { ...appSchema, ...authSchema };
@@ -45,6 +46,8 @@ export type App = typeof app;
 // Callback URL validation is handled at the route level in /api/user/oauth-callback
 // Additional validation is performed via the custom OAuth callback endpoint.
 app.withAuth({
+	trustedOrigins :["acceptconnect://"],
+	plugins: [expo()],
   socialProviders: {
     // Google OAuth (supports Web and Android builds)
     // For Android: Package name is com.alessiobisulca.acceptconnect.com

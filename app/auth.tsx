@@ -1,4 +1,3 @@
-
 import {
   View,
   Text,
@@ -33,6 +32,7 @@ export default function AuthScreen() {
   const [socialProvider, setSocialProvider] = useState<string>("");
   
   const socialTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const socialInProgressRef = useRef(false);
 
   // Navigate to home when user is authenticated
   useEffect(() => {
@@ -47,6 +47,7 @@ export default function AuthScreen() {
       
       setSocialLoading(false);
       setSocialProvider("");
+      socialInProgressRef.current = false;
       router.replace("/(tabs)/(home)");
     }
   }, [user, authLoading, router]);
@@ -102,6 +103,14 @@ export default function AuthScreen() {
   };
 
   const handleSocialAuth = async (provider: "google" | "apple" | "github") => {
+    // CRITICAL: Prevent multiple simultaneous OAuth attempts
+    if (socialInProgressRef.current) {
+      console.warn("[AuthScreen] OAuth already in progress, ignoring duplicate click");
+      showMessage("Info", "Authentication already in progress. Please wait.", "error");
+      return;
+    }
+
+    socialInProgressRef.current = true;
     setSocialLoading(true);
     setSocialProvider(provider);
     setError(null);
@@ -123,11 +132,13 @@ export default function AuthScreen() {
           );
           setSocialLoading(false);
           setSocialProvider("");
+          socialInProgressRef.current = false;
         }
       } catch (err) {
         console.error("[AuthScreen] Error during timeout check:", err);
         setSocialLoading(false);
         setSocialProvider("");
+        socialInProgressRef.current = false;
       }
     }, 15000); // 15 second timeout
 
@@ -153,6 +164,7 @@ export default function AuthScreen() {
       showMessage("Error", err.message || `${provider} sign in failed`, "error");
       setSocialLoading(false);
       setSocialProvider("");
+      socialInProgressRef.current = false;
     }
   };
 
@@ -295,6 +307,7 @@ export default function AuthScreen() {
             style={[styles.socialButton, socialLoading && styles.buttonDisabled]}
             onPress={() => handleSocialAuth("google")}
             disabled={loading || socialLoading}
+            activeOpacity={0.7}
           >
             {socialLoading && socialProvider === "google" ? (
               <ActivityIndicator color="#666" />
@@ -316,6 +329,7 @@ export default function AuthScreen() {
               style={[styles.socialButton, styles.appleButton, socialLoading && styles.buttonDisabled]}
               onPress={() => handleSocialAuth("apple")}
               disabled={loading || socialLoading}
+              activeOpacity={0.7}
             >
               {socialLoading && socialProvider === "apple" ? (
                 <ActivityIndicator color="#fff" />
