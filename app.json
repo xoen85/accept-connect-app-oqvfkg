@@ -61,13 +61,13 @@
         }
       ]
     ],
-    "scheme": "acceptconnect",
+    "scheme": "Accept Connect",
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
       "router": {},
-      "backendUrl": "https://7c9k7xhwvj22br85s33967rfhuyq3fve.app.specular.dev"
+      "backendUrl": "https://gn4vxb67x7uhv3udtqg6e6b28yhf5ga3.app.specular.dev"
     }
   }
 }
