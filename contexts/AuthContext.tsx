@@ -376,14 +376,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Clear the flag after successful completion
         oauthInProgressRef.current = false;
         
-      }  else {
-  await authClient.signIn.social({
-    provider,
-    callbackURL: "acceptconnect://auth-callback",
-  });
+} else {
+  // DEBUG: Log what openAuthSessionAsync receives back
+  const _origOpen = WebBrowser.openAuthSessionAsync;
+  (WebBrowser as any).openAuthSessionAsync = async function(...args: any[]) {
+    const result = await _origOpen.apply(this, args);
+    console.log("[DEBUG] openAuthSessionAsync result:", JSON.stringify(result));
+    return result;
+  };
+
+  try {
+    await authClient.signIn.social({
+      provider,
+      callbackURL: "acceptconnect://auth-callback",
+    });
+  } catch (e: any) {
+    console.log("[DEBUG] signIn.social error:", e?.message);
+  }
+
+  // Restore original
+  (WebBrowser as any).openAuthSessionAsync = _origOpen;
+
   await fetchUser();
   oauthInProgressRef.current = false;
 }
+
 
     } catch (error: any) {
       console.error(`[AuthContext] ${provider} sign in failed:`, error);
