@@ -379,42 +379,91 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         oauthInProgressRef.current = false;
         
  } else {
-        // Native platform - chain OAuth through backend to get session token
+        // Native platform - manual OAuth flow (bypasses expoClient which needs server-side expo() plugin)
         console.log(`[AuthContext] Native platform - initiating ${provider} OAuth`);
 
         const appDeepLink = "acceptconnect://auth-callback";
-        // After OAuth, Better Auth redirects to our backend endpoint (which has the session cookie),
-        // then our endpoint extracts the token and redirects to the app deep link with it appended.
+        // Chain through our backend endpoint: after OAuth, Better Auth redirects here (browser has session cookie),
+        // our endpoint reads the cookie, extracts the session token, and redirects to the app deep link with it.
         const backendCallback = `${API_URL}/api/user/oauth-callback?redirect_to=${encodeURIComponent(appDeepLink)}&provider=${provider}`;
 
         try {
-          // Initiate OAuth flow with backend-chained callback
-          await authClient.signIn.social({
-            provider,
-            callbackURL: backendCallback,
+          // Step 1: POST to Better Auth to get the Google OAuth URL
+          // (Can't open /api/auth/sign-in/social as a GET in the browser — it's a POST endpoint)
+          console.log(`[AuthContext] Fetching OAuth URL from backend`);
+          const initResponse = await fetch(`${API_URL}/api/auth/sign-in/social`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              provider,
+              callbackURL: backendCallback,
+            }),
           });
 
-          console.log(`[AuthContext] OAuth flow initiated for ${provider}`);
-          
-          // The deep link handler in useEffect will handle the token when it comes back
-          // Clear the flag after a reasonable timeout if no response
-          setTimeout(() => {
-            if (oauthInProgressRef.current) {
-              console.warn(`[AuthContext] OAuth timeout for ${provider}, clearing flag`);
-              oauthInProgressRef.current = false;
-            }
-          }, 60000); // 60 second timeout
-          
-        } catch (error) {
-          console.error(`[AuthContext] Error initiating ${provider} OAuth:`, error);
-          
-          // Clear the flag on error
+          if (!initResponse.ok) {
+            const errorText = await initResponse.text().catch(() => 'unknown error');
+            console.error(`[AuthContext] Failed to get OAuth URL:`, initResponse.status, errorText);
+            throw new Error(`Failed to initiate ${provider} OAuth`);
+          }
+
+          const initData = await initResponse.json();
+          const oauthUrl = initData.url || initData.redirect;
+
+          if (!oauthUrl) {
+            console.error(`[AuthContext] No OAuth URL in response:`, initData);
+            throw new Error('No OAuth URL returned from server');
+          }
+
+          // Step 2: Open the actual Google OAuth URL in the browser
+          console.log(`[AuthContext] Opening OAuth browser session`);
+          const result = await WebBrowser.openAuthSessionAsync(oauthUrl, appDeepLink);
+
           oauthInProgressRef.current = false;
-          
-          // Try to fetch user session in case it was actually successful
-          await fetchUser();
+
+          if (result.type === 'success' && result.url) {
+            console.log(`[AuthContext] OAuth browser returned URL`);
+
+            // Extract token from the redirect URL
+            let token: string | null = null;
+            try {
+              const url = new URL(result.url);
+              token = url.searchParams.get('better_auth_token');
+            } catch {
+              const match = result.url.match(/[?&]better_auth_token=([^&]+)/);
+              if (match?.[1]) token = decodeURIComponent(match[1]);
+            }
+
+            if (token) {
+              console.log(`[AuthContext] Token received from ${provider} OAuth`);
+              await setBearerToken(token);
+
+              // Verify token and get user data
+              const verifyResponse = await fetch(
+                `${API_URL}/api/user/verify-oauth-token?token=${encodeURIComponent(token)}`
+              );
+
+              if (verifyResponse.ok) {
+                const verifyData = await verifyResponse.json();
+                console.log(`[AuthContext] OAuth verified:`, verifyData.user.email);
+                setUser(verifyData.user as User);
+              } else {
+                console.warn(`[AuthContext] Token verify failed, trying fetchUser`);
+                await fetchUser();
+              }
+            } else {
+              console.error(`[AuthContext] No token in redirect URL:`, result.url);
+              throw new Error('No authentication token received');
+            }
+          } else if (result.type === 'cancel' || result.type === 'dismiss') {
+            throw new Error('Authentication was cancelled');
+          }
+        } catch (error) {
+          console.error(`[AuthContext] Error in ${provider} OAuth:`, error);
+          oauthInProgressRef.current = false;
+          throw error;
         }
       }
+
 
 
 
