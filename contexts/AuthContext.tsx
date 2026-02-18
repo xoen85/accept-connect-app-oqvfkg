@@ -379,17 +379,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         oauthInProgressRef.current = false;
         
  } else {
-        // Native platform - use deep linking
-        console.log(`[AuthContext] Native platform - initiating ${provider} OAuth with deep linking`);
-        const callbackURL = "acceptconnect://auth-callback";
-        
+        // Native platform - chain OAuth through backend to get session token
+        console.log(`[AuthContext] Native platform - initiating ${provider} OAuth`);
+
+        const appDeepLink = "acceptconnect://auth-callback";
+        // After OAuth, Better Auth redirects to our backend endpoint (which has the session cookie),
+        // then our endpoint extracts the token and redirects to the app deep link with it appended.
+        const backendCallback = `${API_URL}/api/user/oauth-callback?redirect_to=${encodeURIComponent(appDeepLink)}&provider=${provider}`;
+
         try {
-          // Initiate OAuth flow - this will open the browser and redirect back via deep link
-          await authClient.signIn.social({ 
-            provider, 
-            callbackURL,
+          // Initiate OAuth flow with backend-chained callback
+          await authClient.signIn.social({
+            provider,
+            callbackURL: backendCallback,
           });
-          
+
           console.log(`[AuthContext] OAuth flow initiated for ${provider}`);
           
           // The deep link handler in useEffect will handle the token when it comes back
