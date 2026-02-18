@@ -27,6 +27,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+
+
 function openOAuthPopup(provider: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const popupUrl = `${window.location.origin}/auth-popup?provider=${provider}`;
@@ -377,24 +379,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         oauthInProgressRef.current = false;
         
  } else {
-  const callbackURL = "acceptconnect://auth-callback";
-  try {
-    await authClient.signIn.social({ provider, callbackURL });
-  } catch {
-    // Expected on native — expoClient stored the cookie in SecureStore
-  }
-
-  const sessionToken = await getSessionTokenFromCookie();
-  if (sessionToken) {
-    const result = await verifySessionToken(sessionToken);
-    if (result) {
-      setUser(result.user);
-      await setBearerToken(result.token);
-      return;
-    }
-  }
-  await fetchUser();
-}
+        // Native platform - use deep linking
+        console.log(`[AuthContext] Native platform - initiating ${provider} OAuth with deep linking`);
+        const callbackURL = "acceptconnect://auth-callback";
+        
+        try {
+          // Initiate OAuth flow - this will open the browser and redirect back via deep link
+          await authClient.signIn.social({ 
+            provider, 
+            callbackURL,
+          });
+          
+          console.log(`[AuthContext] OAuth flow initiated for ${provider}`);
+          
+          // The deep link handler in useEffect will handle the token when it comes back
+          // Clear the flag after a reasonable timeout if no response
+          setTimeout(() => {
+            if (oauthInProgressRef.current) {
+              console.warn(`[AuthContext] OAuth timeout for ${provider}, clearing flag`);
+              oauthInProgressRef.current = false;
+            }
+          }, 60000); // 60 second timeout
+          
+        } catch (error) {
+          console.error(`[AuthContext] Error initiating ${provider} OAuth:`, error);
+          
+          // Clear the flag on error
+          oauthInProgressRef.current = false;
+          
+          // Try to fetch user session in case it was actually successful
+          await fetchUser();
+        }
+      }
 
 
 
