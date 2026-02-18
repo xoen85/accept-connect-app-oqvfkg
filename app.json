@@ -61,7 +61,7 @@
         }
       ]
     ],
-    "scheme": "Accept Connect",
+    "scheme": "acceptconnect",
     "experiments": {
       "typedRoutes": true
     },
