@@ -376,30 +376,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Clear the flag after successful completion
         oauthInProgressRef.current = false;
         
-} else {
-  // DEBUG: Log what openAuthSessionAsync receives back
-  const _origOpen = WebBrowser.openAuthSessionAsync;
-  (WebBrowser as any).openAuthSessionAsync = async function(...args: any[]) {
-    const result = await _origOpen.apply(this, args);
-    console.log("[DEBUG] openAuthSessionAsync result:", JSON.stringify(result));
-    return result;
-  };
-
+ } else {
+  const callbackURL = "acceptconnect://auth-callback";
   try {
-    await authClient.signIn.social({
-      provider,
-      callbackURL: "acceptconnect://auth-callback",
-    });
-  } catch (e: any) {
-    console.log("[DEBUG] signIn.social error:", e?.message);
+    await authClient.signIn.social({ provider, callbackURL });
+  } catch {
+    // Expected on native — expoClient stored the cookie in SecureStore
   }
 
-  // Restore original
-  (WebBrowser as any).openAuthSessionAsync = _origOpen;
-
+  const sessionToken = await getSessionTokenFromCookie();
+  if (sessionToken) {
+    const result = await verifySessionToken(sessionToken);
+    if (result) {
+      setUser(result.user);
+      await setBearerToken(result.token);
+      return;
+    }
+  }
   await fetchUser();
-  oauthInProgressRef.current = false;
 }
+
 
 
     } catch (error: any) {
