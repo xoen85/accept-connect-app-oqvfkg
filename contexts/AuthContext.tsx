@@ -466,7 +466,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 
 
-
     } catch (error: any) {
       console.error(`[AuthContext] ${provider} sign in failed:`, error);
       
