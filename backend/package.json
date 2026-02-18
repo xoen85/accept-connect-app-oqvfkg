@@ -13,12 +13,13 @@
     "db:push": "npm run db:generate && npm run db:migrate"
   },
   "dependencies": {
+    "@better-auth/expo": "^1.4.18",
     "@electric-sql/pglite": "^0.2.0",
     "@fastify/aws-lambda": "^6.1.0",
     "@fastify/multipart": "^9.3.0",
     "@fastify/swagger": "^9.5.2",
-    "@neondatabase/serverless": "^1.0.2",
     "@fastify/websocket": "^11.2.0",
+    "@neondatabase/serverless": "^1.0.2",
     "@specific-dev/framework": "1.23.1",
     "better-auth": "1.4.5",
     "commander": "^12.1.0",
